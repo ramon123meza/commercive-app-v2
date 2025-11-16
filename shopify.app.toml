@@ -1,0 +1,24 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "813fd5f2b7ad1046bd3bb049b86f9dfe"
+application_url = "https://localhost:8000"
+embedded = true
+name = "commercive"
+handle = "commercive"
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2024-10"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_fulfillments,read_inventory,read_locations,read_orders,read_products,write_fulfillments,write_inventory,write_orders,write_products,read_customers,read_assigned_fulfillment_orders,read_merchant_managed_fulfillment_orders"
+
+[auth]
+redirect_urls = ["https://localhost:8000/auth/callback", "https://localhost:8000/auth/shopify/callback", "https://localhost:8000/api/auth/callback"]
+
+[pos]
+embedded = false

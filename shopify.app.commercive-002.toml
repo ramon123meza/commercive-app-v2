@@ -1,0 +1,29 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "eaa4a886cdd1064a18c5af01db013503"
+application_url = "https://commercive-app.vercel.app"
+embedded = true
+name = "commercive-002"
+handle = "commercive-002"
+
+[build]
+automatically_update_urls_on_dev = false
+dev_store_url = "for-commercive.myshopify.com"
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2024-10"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_fulfillments,read_orders,read_products,write_fulfillments,write_orders,write_products"
+
+[auth]
+redirect_urls = [
+  "https://commercive-app.vercel.app/auth/callback",
+  "https://commercive-app.vercel.app/auth/shopify/callback",
+  "https://commercive-app.vercel.app/api/auth/callback"
+]
+
+[pos]
+embedded = false
