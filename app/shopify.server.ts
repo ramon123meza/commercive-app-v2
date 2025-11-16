@@ -54,9 +54,42 @@ const shopify = shopifyApp({
     },
   },
   hooks: {
-    afterAuth: async ({ session }) => {
+    afterAuth: async ({ session, admin }) => {
       console.log("webhooks is regirsteed..");
       shopify.registerWebhooks({ session });
+
+      // FIX Issue 19: Auto-create dashboard user when merchant installs app
+      try {
+        // Import the utility function
+        const { createDashboardUser } = await import("./utils/createDashboardUser");
+
+        // Fetch shop details from Shopify to get owner email and name
+        const shopResponse = await admin.rest.resources.Shop.all({
+          session: session,
+        });
+
+        const shop = shopResponse.data?.[0];
+        const shopEmail = shop?.email || shop?.shop_owner || undefined;
+        const shopName = shop?.name || session.shop.split(".")[0];
+
+        console.log(`[afterAuth] Creating dashboard user for ${session.shop}`);
+
+        // Create dashboard user automatically
+        const result = await createDashboardUser({
+          shopDomain: session.shop,
+          email: shopEmail,
+          shopName: shopName,
+        });
+
+        if (result.success) {
+          console.log(`[afterAuth] Dashboard user created successfully`, result);
+        } else {
+          console.error(`[afterAuth] Dashboard user creation failed:`, result.error);
+        }
+      } catch (error) {
+        // Non-blocking error - merchant can still use Shopify app
+        console.error(`[afterAuth] Error in createDashboardUser:`, error);
+      }
     },
   },
   ...(process.env.SHOP_CUSTOM_DOMAIN
