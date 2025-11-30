@@ -5,12 +5,22 @@ import { AppProvider } from "@shopify/shopify-app-remix/react";
 import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 
-import { authenticate } from "../shopify.server";
+import { authenticate, registerWebhooks } from "../shopify.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+
+  // Ensure webhooks are registered every time the app is opened
+  // This ensures new webhook subscriptions are registered for existing stores
+  try {
+    await registerWebhooks({ session });
+    console.log(`[app.tsx] Webhooks registered for ${session.shop}`);
+  } catch (error) {
+    // Non-blocking - don't prevent app from loading if webhook registration fails
+    console.error(`[app.tsx] Webhook registration error:`, error);
+  }
 
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };
