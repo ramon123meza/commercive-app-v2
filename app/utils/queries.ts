@@ -102,3 +102,90 @@ export const fulfillmentsQuery = `#graphql
     }
   }
 `;
+
+// Query to fetch full inventory item details by inventory item ID
+// Used when processing inventory_levels/update webhooks
+export const inventoryItemByIdQuery = `#graphql
+  query inventoryItemById($id: ID!) {
+    inventoryItem(id: $id) {
+      id
+      sku
+      tracked
+      variant {
+        id
+        title
+        image {
+          url
+          altText
+        }
+        product {
+          id
+          title
+          featuredMedia {
+            preview {
+              image {
+                url
+              }
+            }
+          }
+        }
+      }
+      inventoryLevels(first: 10) {
+        edges {
+          node {
+            id
+            location {
+              id
+              name
+            }
+            quantities(names: ["available", "committed", "incoming", "on_hand", "reserved"]) {
+              name
+              quantity
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Query to fetch inventory level by location and inventory item
+export const inventoryLevelQuery = `#graphql
+  query inventoryLevel($inventoryItemId: ID!, $locationId: ID!) {
+    inventoryItem(id: $inventoryItemId) {
+      id
+      sku
+      tracked
+      variant {
+        id
+        title
+        image {
+          url
+          altText
+        }
+        product {
+          id
+          title
+          featuredMedia {
+            preview {
+              image {
+                url
+              }
+            }
+          }
+        }
+      }
+      inventoryLevel(locationId: $locationId) {
+        id
+        location {
+          id
+          name
+        }
+        quantities(names: ["available", "committed", "incoming", "on_hand", "reserved"]) {
+          name
+          quantity
+        }
+      }
+    }
+  }
+`;

@@ -141,16 +141,32 @@ export const setInventoryFetched = async ({
   }
 };
 
-export async function saveInventoryDataToSupabase(inventoryData: any) {
+export async function saveInventoryDataToSupabase(inventoryData: any | any[]) {
   try {
+    // Ensure inventoryData is always an array
+    const dataArray = Array.isArray(inventoryData) ? inventoryData : [inventoryData];
+
+    // Filter out any null/undefined entries
+    const validData = dataArray.filter(item => item && item.inventory_id);
+
+    if (validData.length === 0) {
+      console.log("No valid inventory data to save");
+      return null;
+    }
+
     const { data, error } = await supabase
       .from("inventory")
-      .upsert(inventoryData);
+      .upsert(validData, {
+        onConflict: "inventory_id",
+        ignoreDuplicates: false
+      });
 
     if (error) {
       console.error("Error saving inventory data:", error);
-      throw new Error(`Failed to upsert tracking data: ${error.message}`);
+      throw new Error(`Failed to upsert inventory data: ${error.message}`);
     }
+
+    console.log(`Successfully saved ${validData.length} inventory records`);
     return data;
   } catch (err) {
     console.error("Unexpected error while saving Inventory data:", err);
@@ -180,6 +196,31 @@ export async function appUpdateInventoryDataToSupabase(
     console.error("Unexpected error while update Inventory data:", err);
     throw new Error(
       "Something went wrong while update Inventory data to Supabase.",
+    );
+  }
+}
+
+// Delete inventory record from Supabase (used when inventory items are deleted)
+export async function deleteInventoryFromSupabase(
+  inventoryId: string,
+  storeUrl: string,
+) {
+  try {
+    const { error } = await supabase
+      .from("inventory")
+      .delete()
+      .eq("inventory_id", inventoryId)
+      .eq("store_url", storeUrl);
+
+    if (error) {
+      console.error("Error deleting inventory data:", error);
+      throw new Error(`Failed to delete inventory data: ${error.message}`);
+    }
+    console.log(`Inventory ${inventoryId} deleted successfully`);
+  } catch (err) {
+    console.error("Unexpected error while deleting Inventory data:", err);
+    throw new Error(
+      "Something went wrong while deleting Inventory data from Supabase.",
     );
   }
 }

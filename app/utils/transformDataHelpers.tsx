@@ -199,6 +199,49 @@ export function transformInventoryData(
   return transformedData;
 }
 
+// Transform inventory data from webhook response (after fetching full details via GraphQL)
+// This is used when processing INVENTORY_LEVELS_UPDATE webhooks
+export function transformInventoryLevelWebhookData(
+  inventoryItem: any,
+  storeUrl: string,
+) {
+  if (!inventoryItem) {
+    console.log("No inventory item data to transform");
+    return null;
+  }
+
+  try {
+    const productId = inventoryItem?.variant?.product?.id
+      ? inventoryItem.variant.product.id.split("/").pop()
+      : null;
+    const variantId = inventoryItem?.variant?.id
+      ? inventoryItem.variant.id.split("/").pop()
+      : null;
+
+    // Get product image from variant or product featured media
+    const productImage =
+      inventoryItem.variant?.image?.url ||
+      inventoryItem.variant?.product?.featuredMedia?.preview?.image?.url ||
+      null;
+
+    return {
+      inventory_id: inventoryItem.id,
+      sku: inventoryItem.sku || null,
+      inventory_level: inventoryItem.inventoryLevels?.edges || [],
+      store_url: storeUrl,
+      product_id: productId,
+      product_image: productImage,
+      variant_name: inventoryItem.variant?.title || null,
+      product_name: inventoryItem.variant?.product?.title || null,
+      variant_id: variantId ? parseInt(variantId) : null,
+      // Note: back_orders is handled separately by saveBackorderDataToSupabase
+    };
+  } catch (error) {
+    console.error("Error transforming inventory level webhook data:", error);
+    return null;
+  }
+}
+
 export function transformFulfillmentDataFromShopify(
   fulfillmentData: any[],
   storeUrl: string,
