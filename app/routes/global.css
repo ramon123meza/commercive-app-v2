@@ -1,3 +1,65 @@
 .Polaris-EmptyState__Image {
   opacity: 1 !important;
 }
+
+/* Enhanced dashboard styling */
+.Polaris-Card {
+  transition: all 0.2s ease;
+}
+
+.Polaris-Card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* DataTable styling for better readability */
+.Polaris-DataTable__Cell {
+  vertical-align: middle;
+}
+
+.Polaris-DataTable__Table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Badge styling */
+.Polaris-Badge {
+  font-weight: 500;
+}
+
+/* Progress bar container spacing */
+.Polaris-ProgressBar {
+  margin-top: 8px;
+}
+
+/* Button hover effects */
+.Polaris-Button:not(:disabled):hover {
+  transform: translateY(-1px);
+  transition: all 0.2s ease;
+}
+
+/* Icon spacing */
+.Polaris-Icon {
+  flex-shrink: 0;
+}
+
+/* Responsive text sizing */
+@media (max-width: 768px) {
+  .Polaris-Text--heading2xl {
+    font-size: 1.75rem !important;
+  }
+}
+
+/* Low stock alert styling */
+.Polaris-Banner--statusWarning {
+  margin-bottom: 16px;
+}
+
+/* Quick actions grid */
+.Polaris-InlineGrid {
+  gap: 12px;
+}
+
+/* Store connection banner */
+.Polaris-Banner--statusSuccess {
+  margin-bottom: 20px;
+}

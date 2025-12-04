@@ -147,6 +147,10 @@ export function transformFulfillmentData(
   storeUrl: string,
   storeAddress: any,
 ) {
+  // Ensure we preserve Shopify's timestamps exactly as provided
+  // If not provided, use current timestamp to avoid database defaults overwriting real data
+  const currentTimestamp = new Date().toISOString();
+
   return {
     id: uuidv4(),
     order_id: parseInt(payload.order_id) ?? null,
@@ -158,8 +162,9 @@ export function transformFulfillmentData(
     tracking_numbers: payload.tracking_numbers ?? [],
     tracking_url: payload.tracking_url ?? null,
     tracking_urls: payload.tracking_urls ?? [],
-    created_at: payload.created_at,
-    updated_at: payload.updated_at ?? null,
+    // Preserve Shopify's exact timestamps for accurate tracking
+    created_at: payload.created_at || currentTimestamp,
+    updated_at: payload.updated_at || currentTimestamp,
     store_url: storeUrl,
     store_location: storeAddress,
   };
@@ -276,6 +281,7 @@ export function transformFulfillmentDataFromShopify(
           tracking_urls: fulfillment.trackingInfo[0]?.url
             ? [fulfillment.trackingInfo[0].url]
             : [],
+          // Preserve exact Shopify timestamps for accurate tracking
           created_at: fulfillment.createdAt || new Date().toISOString(),
           updated_at: fulfillment.updatedAt || new Date().toISOString(),
           store_url: storeUrl,
