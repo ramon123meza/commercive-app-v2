@@ -1,4 +1,5 @@
 import { supabase } from "../supabase.server";
+import { randomUUID } from "crypto";
 
 /**
  * FIX Issue 19: Auto-create dashboard user when Shopify merchant installs app
@@ -84,9 +85,9 @@ export async function createDashboardUser({
         .insert({
           id: authData.user.id,
           email: userEmail,
-          username: displayName,
+          user_name: displayName,
           role: "user",
-          full_name: displayName,
+          first_name: displayName,
         })
         .select()
         .single();
@@ -123,19 +124,30 @@ export async function createDashboardUser({
     console.log(`[createDashboardUser] Store record created/updated: ${storeData.id}`);
 
     // 7. Link user to store in 'store_to_user' table
-    const { error: linkError } = await supabase
+    // First check if link already exists to avoid duplicates
+    const { data: existingLinkCheck } = await supabase
       .from("store_to_user")
-      .upsert(
-        {
+      .select("uuid")
+      .eq("user_id", userId)
+      .eq("store_id", storeData.id)
+      .single();
+
+    if (!existingLinkCheck) {
+      // Create new link with required uuid field
+      const { error: linkError } = await supabase
+        .from("store_to_user")
+        .insert({
+          uuid: randomUUID(),
           user_id: userId,
           store_id: storeData.id,
-        },
-        { onConflict: "user_id,store_id" }
-      );
+        });
 
-    if (linkError) {
-      console.error(`[createDashboardUser] Store-user link failed:`, linkError);
-      throw linkError;
+      if (linkError) {
+        console.error(`[createDashboardUser] Store-user link failed:`, linkError);
+        throw linkError;
+      }
+    } else {
+      console.log(`[createDashboardUser] User-store link already exists`);
     }
 
     console.log(`[createDashboardUser] User linked to store successfully`);

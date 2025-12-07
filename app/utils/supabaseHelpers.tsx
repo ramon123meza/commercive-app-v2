@@ -1,19 +1,9 @@
-import Redis from "ioredis";
 import { supabase } from "../supabase.server";
 import type { Database } from "app/types/database.types";
 import type { Payload } from "app/types/payload";
 
-// const redis = new Redis({
-//   host: "redis-12100.c323.us-east-1-2.ec2.redns.redis-cloud.com",
-//   port: 12100,
-//   password: "LuMF0crKnoynhQjpA6qaJrdwfYMSP6hS",
-//   username: "default",
-// });
-
-// redis.on("connect", () => console.log("✅ Connected to Rediss"));
-// redis.on("error", (err) => {
-//   console.error("Redis Error:", err);
-// });
+// SECURITY FIX: Removed hardcoded Redis credentials
+// Redis configuration should use environment variables if needed in the future
 
 export async function saveOrdersToSupabase(
   orderData: Database["public"]["Tables"]["order"]["Insert"][],
@@ -280,7 +270,8 @@ export async function saveBackorderDataToSupabase(
         );
 
       if (availableQuantity < 1) {
-        const updatedBackOrders = inventoryData.back_orders || 0 + 1;
+        // BUG FIX: Added parentheses for correct operator precedence
+        const updatedBackOrders = (inventoryData.back_orders || 0) + 1;
 
         const { error: updateError } = await supabase
           .from("inventory")
