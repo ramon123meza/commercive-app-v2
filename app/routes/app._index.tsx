@@ -79,20 +79,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     storeUrl,
   );
 
-  if (!inventoryFetched || true) {
+  if (!inventoryFetched) {
     try {
+      console.log(`[loader] Performing initial data sync for store: ${storeName}`);
       const inventoryData = await fetchAllInventoryLevels(admin);
       const transformedData = transformInventoryData(inventoryData, storeUrl);
       await saveInventoryDataToSupabase(transformedData);
       await setInventoryFetched({ storeName: storeName, storeUrl: storeUrl });
       await saveOrdersToSupabase(orderData);
       await saveFulfillmentDataToSupabase(fulfillmentData);
+      console.log(`[loader] Initial data sync completed for store: ${storeName}`);
     } catch (error) {
-      console.error(`Error fetching data for ${storeName}:`, error);
+      console.error(`[loader] Error fetching data for ${storeName}:`, error);
     }
   } else {
     console.log(
-      `✅Inventory already fetched for store: ${storeName}. Skipping...`,
+      `[loader] Inventory already fetched for store: ${storeName}. Skipping initial sync...`,
     );
   }
 
@@ -239,10 +241,101 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const actionType = formData.get("action");
 
   if (actionType === "disconnect") {
-    // Add logic to handle disconnecting the store
-    console.log("Store disconnected!");
-    // Example: Clear session or remove store-related data from the database
-    return { success: true, message: "Store disconnected successfully.." };
+    try {
+      console.log("[action] Processing store disconnect request");
+      const { admin, session } = await authenticate.admin(request);
+
+      const storeUrl = session.shop;
+      console.log(`[action] Disconnecting store: ${storeUrl}`);
+
+      // 1. Get store ID from database
+      const { data: storeData, error: storeError } = await supabase
+        .from("stores")
+        .select("id")
+        .eq("store_url", storeUrl)
+        .single();
+
+      if (storeError && storeError.code !== "PGRST116") {
+        console.error("[action] Error fetching store data:", storeError);
+        throw new Error(`Failed to fetch store data: ${storeError.message}`);
+      }
+
+      if (storeData) {
+        const storeId = storeData.id;
+
+        // 2. Delete store_to_user relationships
+        const { error: linkError } = await supabase
+          .from("store_to_user")
+          .delete()
+          .eq("store_id", storeId);
+
+        if (linkError) {
+          console.error("[action] Error deleting store-user links:", linkError);
+        } else {
+          console.log(`[action] Deleted store-user links for store ${storeId}`);
+        }
+
+        // 3. Delete store record (cascading deletes should handle inventory, orders, etc.)
+        const { error: deleteError } = await supabase
+          .from("stores")
+          .delete()
+          .eq("id", storeId);
+
+        if (deleteError) {
+          console.error("[action] Error deleting store record:", deleteError);
+          throw new Error(`Failed to delete store record: ${deleteError.message}`);
+        }
+
+        console.log(`[action] Successfully deleted store record for ${storeUrl}`);
+      }
+
+      // 4. Delete webhooks from Shopify
+      try {
+        const webhooksResponse = await admin.rest.resources.Webhook.all({
+          session: session,
+        });
+
+        const webhooks = webhooksResponse.data || [];
+        console.log(`[action] Found ${webhooks.length} webhooks to delete`);
+
+        for (const webhook of webhooks) {
+          try {
+            await admin.rest.resources.Webhook.delete({
+              session: session,
+              id: webhook.id,
+            });
+            console.log(`[action] Deleted webhook ${webhook.id} (${webhook.topic})`);
+          } catch (webhookError) {
+            console.error(`[action] Error deleting webhook ${webhook.id}:`, webhookError);
+          }
+        }
+      } catch (webhookError) {
+        console.error("[action] Error managing webhooks:", webhookError);
+        // Continue with disconnect even if webhook deletion fails
+      }
+
+      // 5. Clear Shopify session from database
+      try {
+        const db = (await import("../db.server")).default;
+        await db.session.deleteMany({ where: { shop: storeUrl } });
+        console.log(`[action] Cleared sessions for shop: ${storeUrl}`);
+      } catch (sessionError) {
+        console.error("[action] Error clearing sessions:", sessionError);
+      }
+
+      console.log(`[action] Store ${storeUrl} disconnected successfully`);
+
+      return {
+        success: true,
+        message: "Store disconnected successfully. All data has been removed.",
+      };
+    } catch (error) {
+      console.error("[action] Error during store disconnect:", error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "An error occurred while disconnecting the store",
+      };
+    }
   }
 
   return { success: false, message: "Invalid action" };

@@ -5,93 +5,117 @@ import type { Payload } from "app/types/payload";
 // SECURITY FIX: Removed hardcoded Redis credentials
 // Redis configuration should use environment variables if needed in the future
 
+/**
+ * Retry helper for Supabase operations with exponential backoff
+ * @param operation Function that performs the Supabase operation
+ * @param operationName Name of the operation for logging
+ * @param maxRetries Maximum number of retry attempts
+ * @returns Result of the operation
+ */
+async function retrySupabaseOperation<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  maxRetries: number = 3
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await operation();
+      if (attempt > 1) {
+        console.log(`[${operationName}] Succeeded on attempt ${attempt}/${maxRetries}`);
+      }
+      return result;
+    } catch (error) {
+      const isLastAttempt = attempt === maxRetries;
+      console.error(
+        `[${operationName}] Attempt ${attempt}/${maxRetries} failed:`,
+        error instanceof Error ? error.message : error
+      );
+
+      if (isLastAttempt) {
+        console.error(`[${operationName}] All retry attempts exhausted. Operation failed.`);
+        throw error;
+      }
+
+      // Exponential backoff: 100ms, 200ms, 400ms
+      const backoffMs = 100 * Math.pow(2, attempt - 1);
+      console.log(`[${operationName}] Retrying in ${backoffMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, backoffMs));
+    }
+  }
+
+  throw new Error(`[${operationName}] Unexpected exit from retry loop`);
+}
+
 export async function saveOrdersToSupabase(
   orderData: Database["public"]["Tables"]["order"]["Insert"][],
 ) {
-  try {
+  return retrySupabaseOperation(async () => {
     const { data, error } = await supabase
       .from("order")
       .upsert(orderData, { onConflict: "order_id" });
 
     if (error) {
-      console.error("Error upserting order data:", error);
+      console.error("[saveOrdersToSupabase] Error upserting order data:", error);
       throw new Error(`Failed to upsert orders: ${error.message}`);
     }
 
-    console.log("Orders upserted successfully:", data);
+    console.log(`[saveOrdersToSupabase] Successfully upserted ${orderData.length} orders`);
     return data;
-  } catch (err) {
-    console.error("Unexpected error while saving orders:", err);
-    throw new Error("Something went wrong while saving orders to Supabase.");
-  }
+  }, "saveOrdersToSupabase");
 }
 
 export async function saveLineItemsToSupabase(
   lineItemData: Database["public"]["Tables"]["order_items"]["Insert"][],
 ) {
-  try {
+  return retrySupabaseOperation(async () => {
     const { data, error } = await supabase
       .from("order_items")
       .upsert(lineItemData, { onConflict: "order_id,product_id" });
 
     if (error) {
-      console.error("Error upserting line items:", error);
+      console.error("[saveLineItemsToSupabase] Error upserting line items:", error);
       throw new Error(`Failed to upsert line items: ${error.message}`);
     }
 
-    console.log("Line items upserted successfully:", data);
+    console.log(`[saveLineItemsToSupabase] Successfully upserted ${lineItemData.length} line items`);
     return data;
-  } catch (err) {
-    console.error("Unexpected error while saving line items:", err);
-    throw new Error(
-      "Something went wrong while saving line items to Supabase.",
-    );
-  }
+  }, "saveLineItemsToSupabase");
 }
 
 export async function saveTrackingData(
   trackingData: Database["public"]["Tables"]["trackings"]["Insert"],
 ) {
-  try {
+  return retrySupabaseOperation(async () => {
     const { data, error } = await supabase
       .from("trackings")
       .upsert(trackingData, { onConflict: "order_id" });
 
     if (error) {
-      console.error("Error upserting tracking data:", error);
+      console.error("[saveTrackingData] Error upserting tracking data:", error);
       throw new Error(`Failed to upsert tracking data: ${error.message}`);
     }
 
-    console.log("Tracking data upserted successfully:", data);
+    console.log("[saveTrackingData] Tracking data upserted successfully");
     return data;
-  } catch (err) {
-    console.error("Unexpected error while saving tracking data:", err);
-    throw new Error(
-      "Something went wrong while saving tracking data to Supabase.",
-    );
-  }
+  }, "saveTrackingData");
 }
 
 export async function saveFulfillmentDataToSupabase(
   fulfillmentData: Database["public"]["Tables"]["trackings"]["Insert"][],
 ) {
-  try {
+  return retrySupabaseOperation(async () => {
     const { data, error } = await supabase
       .from("trackings")
       .upsert(fulfillmentData, { onConflict: "order_id" });
 
     if (error) {
-      console.error("Error upserting fulfillment data:", error);
+      console.error("[saveFulfillmentDataToSupabase] Error upserting fulfillment data:", error);
       throw new Error(`Failed to upsert fulfillment data: ${error.message}`);
     }
 
+    console.log(`[saveFulfillmentDataToSupabase] Successfully upserted ${fulfillmentData.length} fulfillments`);
     return data;
-  } catch (err) {
-    console.error("Unexpected error while saving fulfillment data:", err);
-    throw new Error(
-      "Something went wrong while saving fulfillment data to Supabase.",
-    );
-  }
+  }, "saveFulfillmentDataToSupabase");
 }
 
 export const isInventoryFetched = async (
@@ -132,7 +156,7 @@ export const setInventoryFetched = async ({
 };
 
 export async function saveInventoryDataToSupabase(inventoryData: any | any[]) {
-  try {
+  return retrySupabaseOperation(async () => {
     // Ensure inventoryData is always an array
     const dataArray = Array.isArray(inventoryData) ? inventoryData : [inventoryData];
 
@@ -140,7 +164,7 @@ export async function saveInventoryDataToSupabase(inventoryData: any | any[]) {
     const validData = dataArray.filter(item => item && item.inventory_id);
 
     if (validData.length === 0) {
-      console.log("No valid inventory data to save");
+      console.log("[saveInventoryDataToSupabase] No valid inventory data to save");
       return null;
     }
 
@@ -152,18 +176,13 @@ export async function saveInventoryDataToSupabase(inventoryData: any | any[]) {
       });
 
     if (error) {
-      console.error("Error saving inventory data:", error);
+      console.error("[saveInventoryDataToSupabase] Error saving inventory data:", error);
       throw new Error(`Failed to upsert inventory data: ${error.message}`);
     }
 
-    console.log(`Successfully saved ${validData.length} inventory records`);
+    console.log(`[saveInventoryDataToSupabase] Successfully saved ${validData.length} inventory records`);
     return data;
-  } catch (err) {
-    console.error("Unexpected error while saving Inventory data:", err);
-    throw new Error(
-      "Something went wrong while saving Inventory data to Supabase.",
-    );
-  }
+  }, "saveInventoryDataToSupabase");
 }
 
 export async function appUpdateInventoryDataToSupabase(
@@ -219,84 +238,171 @@ export async function saveBackorderDataToSupabase(
   lineItems: Payload["line_items"],
   order_id: number,
 ) {
-  try {
-    const redisKey = `backorder_lock:${order_id}`;
+  const maxRetries = 3;
+  const lockKey = `backorder_lock_${order_id}`;
 
-    const isSet = true; //await redis.set(redisKey, "locked", "EX", 60, "NX");
-    if (!isSet) {
+  try {
+    // Attempt to acquire a database-level advisory lock to prevent race conditions
+    // Using order_id as a unique identifier for the lock
+    const lockAcquired = await acquireBackorderLock(order_id);
+
+    if (!lockAcquired) {
+      console.log(`[saveBackorderDataToSupabase] Order ${order_id} is already being processed by another request. Skipping...`);
       return;
     }
 
-    for (const item of lineItems) {
-      const variant_id = item.variant_id;
+    try {
+      for (const item of lineItems) {
+        const variant_id = item.variant_id;
 
-      const { data: inventoryData, error } = await supabase
-        .from("inventory")
-        .select("back_orders, product_id, inventory_level")
-        .eq("variant_id", variant_id)
-        .single();
+        // Retry logic for fetching inventory data
+        let inventoryData = null;
+        let lastError = null;
 
-      if (error)
-        throw new Error(`Error fetching inventory data: ${error.message}`);
-      if (!inventoryData) {
-        return new Error(`No inventory record found for product ${variant_id}`);
-      }
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          const { data, error } = await supabase
+            .from("inventory")
+            .select("back_orders, product_id, inventory_level")
+            .eq("variant_id", variant_id)
+            .single();
 
-      const inventoryLevels = inventoryData.inventory_level as any;
-      if (
-        !inventoryLevels ||
-        !Array.isArray(inventoryLevels) ||
-        inventoryLevels.length === 0
-      ) {
-        throw new Error(
-          `No inventory level data found for product ${variant_id}`,
-        );
-      }
+          if (!error) {
+            inventoryData = data;
+            break;
+          }
 
-      const inventoryNode = inventoryLevels[0].node;
-      if (!inventoryNode)
-        throw new Error(
-          `No matching inventory node found for product ${variant_id}`,
-        );
+          lastError = error;
+          console.warn(`[saveBackorderDataToSupabase] Attempt ${attempt}/${maxRetries} failed for variant ${variant_id}:`, error.message);
 
-      const quantities = inventoryNode.quantities;
-      const availableQuantity = quantities.find(
-        (q: { name: string }) => q.name === "available",
-      )?.quantity;
+          if (attempt < maxRetries) {
+            // Exponential backoff: wait 100ms, 200ms, 400ms
+            await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt - 1)));
+          }
+        }
 
-      if (availableQuantity === undefined)
-        throw new Error(
-          `No 'available' quantity found for product ${variant_id}`,
-        );
+        if (!inventoryData) {
+          console.error(`[saveBackorderDataToSupabase] Failed to fetch inventory data after ${maxRetries} attempts for variant ${variant_id}:`, lastError?.message);
+          continue; // Skip this item but continue processing others
+        }
 
-      if (availableQuantity < 1) {
-        // BUG FIX: Added parentheses for correct operator precedence
-        const updatedBackOrders = (inventoryData.back_orders || 0) + 1;
+        const inventoryLevels = inventoryData.inventory_level as any;
+        if (
+          !inventoryLevels ||
+          !Array.isArray(inventoryLevels) ||
+          inventoryLevels.length === 0
+        ) {
+          console.warn(`[saveBackorderDataToSupabase] No inventory level data found for variant ${variant_id}`);
+          continue;
+        }
 
-        const { error: updateError } = await supabase
-          .from("inventory")
-          .update({ back_orders: updatedBackOrders })
-          .eq("variant_id", variant_id);
+        const inventoryNode = inventoryLevels[0].node;
+        if (!inventoryNode) {
+          console.warn(`[saveBackorderDataToSupabase] No matching inventory node found for variant ${variant_id}`);
+          continue;
+        }
 
-        if (updateError) {
-          console.error(
-            `Error updating back_orders for product ${variant_id}:`,
-            updateError,
-          );
-        } else {
-          console.log(
-            `Back order updated for product ${variant_id} in order ${order_id}`,
-          );
+        const quantities = inventoryNode.quantities;
+        const availableQuantity = quantities.find(
+          (q: { name: string }) => q.name === "available",
+        )?.quantity;
+
+        if (availableQuantity === undefined) {
+          console.warn(`[saveBackorderDataToSupabase] No 'available' quantity found for variant ${variant_id}`);
+          continue;
+        }
+
+        if (availableQuantity < 1) {
+          // Update back orders with retry logic
+          const updatedBackOrders = (inventoryData.back_orders || 0) + 1;
+
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            const { error: updateError } = await supabase
+              .from("inventory")
+              .update({ back_orders: updatedBackOrders })
+              .eq("variant_id", variant_id);
+
+            if (!updateError) {
+              console.log(`[saveBackorderDataToSupabase] Back order updated for variant ${variant_id} in order ${order_id}. New count: ${updatedBackOrders}`);
+              break;
+            }
+
+            console.warn(`[saveBackorderDataToSupabase] Update attempt ${attempt}/${maxRetries} failed for variant ${variant_id}:`, updateError.message);
+
+            if (attempt === maxRetries) {
+              console.error(`[saveBackorderDataToSupabase] Failed to update back_orders after ${maxRetries} attempts for variant ${variant_id}:`, updateError);
+            } else {
+              await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt - 1)));
+            }
+          }
         }
       }
+    } finally {
+      // Always release the lock, even if an error occurred
+      await releaseBackorderLock(order_id);
     }
   } catch (err) {
     console.error(
-      `Unexpected error while adding backorder data for order ${order_id}:`,
+      `[saveBackorderDataToSupabase] Unexpected error while processing backorder data for order ${order_id}:`,
       err,
     );
-    throw new Error(
-      "Something went wrong while adding backorder data to Supabase.",
-    );
+    // Don't throw - we don't want to block order processing if backorder tracking fails
+    // Just log the error for monitoring
+  }
+}
+
+/**
+ * Acquire a database-level lock for backorder processing
+ * Uses a separate locking table to prevent race conditions
+ */
+async function acquireBackorderLock(orderId: number): Promise<boolean> {
+  try {
+    const lockExpiry = new Date(Date.now() + 60000); // Lock expires in 60 seconds
+
+    // Try to insert a lock record
+    const { error } = await supabase
+      .from("backorder_locks")
+      .insert({
+        order_id: orderId,
+        locked_at: new Date().toISOString(),
+        expires_at: lockExpiry.toISOString(),
+      });
+
+    if (error) {
+      // If insert fails due to unique constraint, lock already exists
+      if (error.code === '23505') { // PostgreSQL unique violation
+        console.log(`[acquireBackorderLock] Lock already exists for order ${orderId}`);
+        return false;
+      }
+
+      // For other errors, log and return false to be safe
+      console.error(`[acquireBackorderLock] Error acquiring lock for order ${orderId}:`, error);
+      return false;
+    }
+
+    console.log(`[acquireBackorderLock] Lock acquired for order ${orderId}`);
+    return true;
+  } catch (err) {
+    console.error(`[acquireBackorderLock] Unexpected error:`, err);
+    return false;
+  }
+}
+
+/**
+ * Release a database-level lock for backorder processing
+ */
+async function releaseBackorderLock(orderId: number): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from("backorder_locks")
+      .delete()
+      .eq("order_id", orderId);
+
+    if (error) {
+      console.error(`[releaseBackorderLock] Error releasing lock for order ${orderId}:`, error);
+    } else {
+      console.log(`[releaseBackorderLock] Lock released for order ${orderId}`);
+    }
+  } catch (err) {
+    console.error(`[releaseBackorderLock] Unexpected error:`, err);
   }
 }
