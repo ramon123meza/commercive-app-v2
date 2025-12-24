@@ -20,8 +20,11 @@ export default function App() {
 
   return (
     <AppProvider
-      isEmbeddedApp
-      apiKey={apiKey}
+      config={{
+        apiKey,
+        host: new URL(globalThis.location.href).searchParams.get("host") || "",
+        forceRedirect: true,
+      }}
       i18n={{
         Polaris: {
           ResourceList: {

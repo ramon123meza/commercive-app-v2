@@ -7,8 +7,7 @@ This is the Commercive Shopify app, completely refactored to use AWS Lambda func
 **Framework**: Remix (React-based)
 **Backend**: AWS Lambda via Function URLs
 **Database**:
-- PostgreSQL (Prisma) - For Shopify OAuth sessions only
-- DynamoDB (via Lambda) - For all application data
+- DynamoDB - For Shopify OAuth sessions AND all application data
 
 ## Architecture Changes
 
@@ -32,7 +31,7 @@ This is the Commercive Shopify app, completely refactored to use AWS Lambda func
 
 ### Core Application
 - `app/shopify.server.ts` - Shopify app setup, OAuth, webhooks
-- `app/db.server.ts` - Prisma client (session storage only)
+- `app/db.server.ts` - DynamoDB client (session storage)
 - `app/config/lambda.server.ts` - Lambda URLs configuration
 
 ### API Integration
@@ -70,9 +69,10 @@ SHOPIFY_API_KEY=your_shopify_api_key
 SHOPIFY_API_SECRET=your_shopify_api_secret
 SHOPIFY_APP_URL=https://app.commercive.co
 
-# Database (for Shopify sessions)
-DATABASE_URL=postgresql://...
-DIRECT_URL=postgresql://...
+# AWS (for DynamoDB session storage)
+AWS_ACCESS_KEY_ID=your_aws_access_key_id
+AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+AWS_REGION=us-east-1
 
 # Lambda Function URLs (after deploying Lambda functions)
 LAMBDA_AUTH_URL=https://xxx.lambda-url.us-east-1.on.aws
@@ -87,12 +87,9 @@ LAMBDA_ADMIN_URL=https://xxx.lambda-url.us-east-1.on.aws
 AFFILIATE_DASHBOARD_URL=https://your-dashboard.amplifyapp.com
 ```
 
-### 3. Set Up Database
+### 3. Set Up DynamoDB
 
-```bash
-npx prisma generate
-npx prisma db push
-```
+Ensure the `commercive_shopify_sessions` table exists in DynamoDB. This table was created by the `setup_database.py` script.
 
 ### 4. Run Development Server
 
@@ -163,13 +160,14 @@ All database operations go through Lambda functions:
 
 - [ ] All Lambda functions deployed and tested
 - [ ] Lambda Function URLs configured in environment
-- [ ] PostgreSQL database set up for sessions
-- [ ] Prisma schema pushed
-- [ ] Environment variables configured in Vercel
+- [ ] DynamoDB table `commercive_shopify_sessions` created
+- [ ] AWS credentials configured in Vercel environment variables
+- [ ] All environment variables configured in Vercel
 - [ ] App deployed to Vercel
 - [ ] Shopify app settings updated with production URLs
 - [ ] Test installation on development store
 - [ ] Verify all webhooks working
+- [ ] Check session storage working (no MissingSessionTableError)
 - [ ] Check data flowing to DynamoDB
 - [ ] Confirm dashboards showing data
 
@@ -181,9 +179,10 @@ All database operations go through Lambda functions:
 - Test webhook handler endpoint with curl
 
 ### Database Connection
-- Verify DATABASE_URL is correct
-- Check Prisma schema is up to date: `npx prisma generate`
-- Ensure database is accessible from deployment environment
+- Verify AWS credentials are correct
+- Check DynamoDB table `commercive_shopify_sessions` exists
+- Ensure IAM permissions allow read/write to DynamoDB
+- Verify AWS region matches in environment variables
 
 ### Lambda Integration
 - Verify all Lambda URLs are configured
