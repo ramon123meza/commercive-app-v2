@@ -19,7 +19,26 @@ export default function App() {
   const { apiKey } = useLoaderData<typeof loader>();
 
   return (
-    <AppProvider isEmbeddedApp apiKey={apiKey}>
+    <AppProvider
+      isEmbeddedApp
+      apiKey={apiKey}
+      i18n={{
+        Polaris: {
+          ResourceList: {
+            sortingLabel: "Sort by",
+            defaultItemSingular: "item",
+            defaultItemPlural: "items",
+            showing: "Showing {itemsCount} {resource}",
+            Item: {
+              viewItem: "View details for {itemName}",
+            },
+          },
+          Common: {
+            checkbox: "checkbox",
+          },
+        },
+      }}
+    >
       <NavMenu>
         <Link to="/app" rel="home">
           Home
