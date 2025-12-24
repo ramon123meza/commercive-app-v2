@@ -21,33 +21,41 @@ import { DASHBOARD_URLS } from "~/config/lambda.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  try {
-    // Fetch data from Lambda functions
-    const [recentOrders, inventory, lowStockItems] = await Promise.all([
-      getOrders(session.shop, 10),
-      getInventory(session.shop, 20),
-      getLowStockItems(session.shop, 10),
-    ]);
+  // Simplified loader - Lambda calls are optional
+  let recentOrders: any[] = [];
+  let inventory: any[] = [];
+  let lowStockItems: any[] = [];
+  let error: string | undefined;
 
-    return json({
-      shop: session.shop,
-      recentOrders,
-      inventory,
-      lowStockItems,
-      dashboardUrl: DASHBOARD_URLS.affiliate,
-    });
-  } catch (error: any) {
-    console.error("[Dashboard] Error loading data:", error);
+  // Only try Lambda calls if URLs are configured
+  const lambdaConfigured = DASHBOARD_URLS.affiliate &&
+    process.env.LAMBDA_ORDERS_URL &&
+    process.env.LAMBDA_INVENTORY_URL;
 
-    return json({
-      shop: session.shop,
-      recentOrders: [],
-      inventory: [],
-      lowStockItems: [],
-      dashboardUrl: DASHBOARD_URLS.affiliate,
-      error: error.message || "Failed to load data",
-    });
+  if (lambdaConfigured) {
+    try {
+      const results = await Promise.all([
+        getOrders(session.shop, 10).catch(() => []),
+        getInventory(session.shop, 20).catch(() => []),
+        getLowStockItems(session.shop, 10).catch(() => []),
+      ]);
+      recentOrders = results[0];
+      inventory = results[1];
+      lowStockItems = results[2];
+    } catch (err: any) {
+      console.error("[Dashboard] Error loading data:", err);
+      error = err.message || "Failed to load data";
+    }
   }
+
+  return json({
+    shop: session.shop,
+    recentOrders,
+    inventory,
+    lowStockItems,
+    dashboardUrl: DASHBOARD_URLS.affiliate || "#",
+    error,
+  });
 };
 
 export default function Index() {
