@@ -1,15 +1,8 @@
 import { PrismaClient } from "@prisma/client";
 
-declare global {
-  var prisma: PrismaClient;
-}
+// Prisma client for Shopify session storage
+// All application data is stored in DynamoDB via Lambda functions
 
-if (process.env.NODE_ENV !== "production") {
-  if (!global.prisma) {
-    global.prisma = new PrismaClient();
-  }
-}
-
-const prisma: PrismaClient = global.prisma || new PrismaClient();
+const prisma = new PrismaClient();
 
 export default prisma;

@@ -41,7 +41,7 @@ const shopify = shopifyApp({
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks",
     },
-    // Order webhooks - need both CREATE and UPDATED for real-time sync
+    // Order webhooks - both CREATE and UPDATED for real-time sync
     ORDERS_CREATE: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks",
@@ -50,8 +50,7 @@ const shopify = shopifyApp({
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks",
     },
-    // INVENTORY LEVELS webhooks - these fire when QUANTITIES change (available, committed, on_hand)
-    // This is the CRITICAL webhook for real-time inventory quantity updates!
+    // INVENTORY LEVELS webhooks - fire when QUANTITIES change
     INVENTORY_LEVELS_UPDATE: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks",
@@ -64,7 +63,7 @@ const shopify = shopifyApp({
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks",
     },
-    // INVENTORY ITEMS webhooks - these fire when item metadata changes (SKU, cost, etc.)
+    // INVENTORY ITEMS webhooks - fire when item metadata changes
     INVENTORY_ITEMS_CREATE: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks",
@@ -90,16 +89,22 @@ const shopify = shopifyApp({
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks",
     },
+    // App uninstall webhook
+    APP_UNINSTALLED: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/app-uninstalled",
+    },
   },
   hooks: {
     afterAuth: async ({ session, admin }) => {
-      console.log("webhooks is regirsteed..");
+      console.log("[afterAuth] Registering webhooks...");
       shopify.registerWebhooks({ session });
 
-      // FIX Issue 19: Auto-create dashboard user when merchant installs app
+      // Auto-create dashboard user via Lambda when merchant installs app
       try {
-        // Import the utility function
-        const { createDashboardUser } = await import("./utils/createDashboardUser");
+        const { createDashboardUserViaLambda } = await import(
+          "./utils/createDashboardUser"
+        );
 
         // Fetch shop details from Shopify to get owner email and name
         const shopResponse = await admin.rest.resources.Shop.all({
@@ -112,21 +117,22 @@ const shopify = shopifyApp({
 
         console.log(`[afterAuth] Creating dashboard user for ${session.shop}`);
 
-        // Create dashboard user automatically
-        const result = await createDashboardUser({
+        // Create dashboard user via Lambda
+        const result = await createDashboardUserViaLambda({
           shopDomain: session.shop,
+          accessToken: session.accessToken,
           email: shopEmail,
           shopName: shopName,
         });
 
         if (result.success) {
-          console.log(`[afterAuth] Dashboard user created successfully`, result);
+          console.log(`[afterAuth] Dashboard user created:`, result);
         } else {
-          console.error(`[afterAuth] Dashboard user creation failed:`, result.error);
+          console.error(`[afterAuth] User creation failed:`, result.error);
         }
       } catch (error) {
         // Non-blocking error - merchant can still use Shopify app
-        console.error(`[afterAuth] Error in createDashboardUser:`, error);
+        console.error(`[afterAuth] Error creating dashboard user:`, error);
       }
     },
   },
@@ -134,6 +140,7 @@ const shopify = shopifyApp({
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
 });
+
 export default shopify;
 export const apiVersion = ApiVersion.October24;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;

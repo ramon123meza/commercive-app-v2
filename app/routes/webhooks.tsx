@@ -1,289 +1,301 @@
+/**
+ * Unified Webhook Handler
+ *
+ * Processes all Shopify webhooks and sends data to Lambda functions.
+ * Replaces old Supabase operations with Lambda API calls.
+ */
+
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import {
-  saveOrdersToSupabase,
-  saveLineItemsToSupabase,
-  saveTrackingData,
-  saveBackorderDataToSupabase,
-  saveInventoryDataToSupabase,
-  deleteInventoryFromSupabase,
-} from "../utils/supabaseHelpers";
-import {
-  transformOrderData,
-  transformLineItemsData,
-  transformFulfillmentData,
-  transformInventoryLevelWebhookData,
-} from "../utils/transformDataHelpers";
-import type { Payload, StoreInfo, TrackingData } from "../types/payload";
-import { storeInfoQuery, inventoryItemByIdQuery } from "app/utils/queries";
-import { supabase } from "app/supabase.server";
-
-// Type for inventory_levels webhook payload
-interface InventoryLevelPayload {
-  inventory_item_id: number;
-  location_id: number;
-  available: number;
-  updated_at: string;
-  admin_graphql_api_id: string;
-}
-
-// Type for inventory_items webhook payload
-interface InventoryItemPayload {
-  id: number;
-  sku: string | null;
-  created_at: string;
-  updated_at: string;
-  requires_shipping: boolean;
-  cost: string | null;
-  country_code_of_origin: string | null;
-  admin_graphql_api_id: string;
-}
-
-// Type for products webhook payload
-interface ProductPayload {
-  id: number;
-  title: string;
-  vendor: string;
-  product_type: string;
-  created_at: string;
-  updated_at: string;
-  status: string;
-  variants: Array<{
-    id: number;
-    product_id: number;
-    title: string;
-    sku: string | null;
-    inventory_item_id: number;
-    inventory_quantity: number;
-  }>;
-  admin_graphql_api_id: string;
-}
+  syncOrder,
+  syncInventory,
+  syncFulfillment,
+  logWebhook,
+} from "~/utils/lambdaClient";
+import type {
+  SyncOrderPayload,
+  SyncInventoryPayload,
+  SyncFulfillmentPayload,
+} from "~/types/api.types";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { topic, admin, payload } = await authenticate.webhook(request);
-
-  if (!admin) {
-    throw new Response("Unauthorized", { status: 401 });
-  }
-
-  // Get store information
-  const response = await admin.graphql(storeInfoQuery);
-  const storeData = (await response.json()).data as StoreInfo;
-  const storeUrl = storeData.shop.myshopifyDomain;
-
-  // Log webhook to database with await for proper error handling
   try {
-    await supabase.from("webhooks").insert({
-      store_url: storeUrl,
-      topic: topic,
-      payload: payload,
+    const { topic, shop, session, admin, payload } = await authenticate.webhook(
+      request
+    );
+
+    console.log(`[Webhook] Received: ${topic} from ${shop}`);
+
+    // Log webhook reception (non-blocking)
+    logWebhook(topic, shop, payload).catch((err) => {
+      console.error("[Webhook] Failed to log:", err);
     });
-  } catch (webhookLogError) {
-    console.error("Failed to log webhook:", webhookLogError);
-    // Continue processing even if logging fails
-  }
 
-  console.log(`📥 Webhook received: ${topic} for store ${storeUrl}`);
-
-  try {
+    // Process webhook based on topic
     switch (topic) {
-      // ==================== FULFILLMENT WEBHOOKS ====================
-      case "FULFILLMENTS_CREATE":
-      case "FULFILLMENTS_UPDATE": {
-        console.log(`✅ ${topic} - Processing fulfillment`);
-        const trackingData = transformFulfillmentData(
-          payload as TrackingData,
-          storeUrl,
-          storeData.shop.billingAddress,
-        );
-        await saveTrackingData(trackingData);
-        break;
-      }
-
-      // ==================== ORDER WEBHOOKS ====================
+      // =====================================================================
+      // ORDER WEBHOOKS
+      // =====================================================================
       case "ORDERS_CREATE":
-      case "ORDERS_UPDATED": {
-        console.log(`✅ ${topic} - Processing order`);
-        const _payload = payload as Payload;
-
-        // Transform and save order data
-        const orderData = await transformOrderData(_payload, storeUrl);
-        await saveOrdersToSupabase([orderData]);
-
-        // Transform and save line items
-        const lineItemData = transformLineItemsData(_payload, storeUrl);
-        await saveLineItemsToSupabase(lineItemData);
-
-        // Process backorder data if there are line items
-        const lineItems = _payload.line_items;
-        const order_id = _payload.id;
-        if (lineItems && lineItems.length > 0) {
-          await saveBackorderDataToSupabase(lineItems, order_id);
-        }
+      case "ORDERS_UPDATED":
+        await handleOrderWebhook(shop, payload);
         break;
-      }
 
-      // ==================== INVENTORY LEVELS WEBHOOKS (QUANTITY CHANGES) ====================
-      // These are the CRITICAL webhooks for real-time inventory quantity updates
+      // =====================================================================
+      // FULFILLMENT WEBHOOKS
+      // =====================================================================
+      case "FULFILLMENTS_CREATE":
+      case "FULFILLMENTS_UPDATE":
+        await handleFulfillmentWebhook(shop, payload);
+        break;
+
+      // =====================================================================
+      // INVENTORY LEVEL WEBHOOKS (quantity changes)
+      // =====================================================================
       case "INVENTORY_LEVELS_UPDATE":
-      case "INVENTORY_LEVELS_CONNECT": {
-        console.log(`✅ ${topic} - Processing inventory LEVEL change (quantities)`);
-        const levelPayload = payload as InventoryLevelPayload;
-
-        // The inventory_levels webhook only contains:
-        // - inventory_item_id, location_id, available, updated_at
-        // We need to fetch the full inventory item details from Shopify
-        const inventoryItemId = `gid://shopify/InventoryItem/${levelPayload.inventory_item_id}`;
-
-        try {
-          const inventoryResponse = await admin.graphql(inventoryItemByIdQuery, {
-            variables: { id: inventoryItemId },
-          });
-          const inventoryData = await inventoryResponse.json();
-
-          if (inventoryData?.data?.inventoryItem) {
-            const item = inventoryData.data.inventoryItem;
-
-            // Transform the inventory data to match our database schema
-            const transformedData = transformInventoryLevelWebhookData(item, storeUrl);
-
-            if (transformedData) {
-              await saveInventoryDataToSupabase([transformedData]);
-              console.log(`✅ Inventory updated for item ${levelPayload.inventory_item_id}`);
-            }
-          } else {
-            console.error(`Failed to fetch inventory item details for ${inventoryItemId}`);
-          }
-        } catch (fetchError) {
-          console.error(`Error fetching inventory item ${inventoryItemId}:`, fetchError);
-        }
+      case "INVENTORY_LEVELS_CONNECT":
+      case "INVENTORY_LEVELS_DISCONNECT":
+        await handleInventoryLevelWebhook(shop, payload, admin, session);
         break;
-      }
 
-      case "INVENTORY_LEVELS_DISCONNECT": {
-        console.log(`✅ ${topic} - Inventory disconnected from location`);
-        // When inventory is disconnected, we might want to update or remove the record
-        const levelPayload = payload as InventoryLevelPayload;
-        console.log(`Inventory item ${levelPayload.inventory_item_id} disconnected from location ${levelPayload.location_id}`);
-        // For now, we'll just log this - the quantity will be updated when reconnected
-        break;
-      }
-
-      // ==================== INVENTORY ITEMS WEBHOOKS (METADATA CHANGES) ====================
-      // These fire when SKU, cost, or other metadata changes - NOT quantities
+      // =====================================================================
+      // INVENTORY ITEM WEBHOOKS (metadata changes)
+      // =====================================================================
       case "INVENTORY_ITEMS_CREATE":
-      case "INVENTORY_ITEMS_UPDATE": {
-        console.log(`✅ ${topic} - Processing inventory ITEM metadata change`);
-        const itemPayload = payload as InventoryItemPayload;
-
-        // Fetch full inventory item details including quantities
-        const inventoryItemId = itemPayload.admin_graphql_api_id;
-
-        try {
-          const inventoryResponse = await admin.graphql(inventoryItemByIdQuery, {
-            variables: { id: inventoryItemId },
-          });
-          const inventoryData = await inventoryResponse.json();
-
-          if (inventoryData?.data?.inventoryItem) {
-            const item = inventoryData.data.inventoryItem;
-            const transformedData = transformInventoryLevelWebhookData(item, storeUrl);
-
-            if (transformedData) {
-              await saveInventoryDataToSupabase([transformedData]);
-              console.log(`✅ Inventory metadata updated for item ${itemPayload.id}`);
-            }
-          }
-        } catch (fetchError) {
-          console.error(`Error fetching inventory item ${inventoryItemId}:`, fetchError);
-        }
+      case "INVENTORY_ITEMS_UPDATE":
+      case "INVENTORY_ITEMS_DELETE":
+        await handleInventoryItemWebhook(shop, payload, topic);
         break;
-      }
 
-      case "INVENTORY_ITEMS_DELETE": {
-        console.log(`✅ ${topic} - Inventory item deleted`);
-        const itemPayload = payload as InventoryItemPayload;
-        // Delete the inventory record from our database
-        await deleteInventoryFromSupabase(itemPayload.admin_graphql_api_id, storeUrl);
-        break;
-      }
-
-      // ==================== PRODUCT WEBHOOKS ====================
+      // =====================================================================
+      // PRODUCT WEBHOOKS
+      // =====================================================================
       case "PRODUCTS_CREATE":
-      case "PRODUCTS_UPDATE": {
-        console.log(`✅ ${topic} - Processing product change`);
-        const productPayload = payload as ProductPayload;
+      case "PRODUCTS_UPDATE":
+      case "PRODUCTS_DELETE":
+        console.log(`[Webhook] ${topic} - Catalog update (no action needed)`);
+        // Products are synced via inventory, no separate action needed
+        break;
 
-        // When a product is created/updated, fetch and update inventory for all its variants
-        if (productPayload.variants && productPayload.variants.length > 0) {
-          for (const variant of productPayload.variants) {
-            if (variant.inventory_item_id) {
-              const inventoryItemId = `gid://shopify/InventoryItem/${variant.inventory_item_id}`;
+      // =====================================================================
+      // APP LIFECYCLE
+      // =====================================================================
+      case "APP_UNINSTALLED":
+        console.log(`[Webhook] App uninstalled for ${shop}`);
+        // Cleanup handled separately in app.uninstalled route
+        break;
 
-              try {
-                const inventoryResponse = await admin.graphql(inventoryItemByIdQuery, {
-                  variables: { id: inventoryItemId },
-                });
-                const inventoryData = await inventoryResponse.json();
+      default:
+        console.log(`[Webhook] Unhandled topic: ${topic}`);
+    }
 
-                if (inventoryData?.data?.inventoryItem) {
-                  const item = inventoryData.data.inventoryItem;
-                  const transformedData = transformInventoryLevelWebhookData(item, storeUrl);
+    return new Response("Webhook processed", { status: 200 });
+  } catch (error: any) {
+    console.error("[Webhook] Error:", error);
+    // Return 200 to prevent Shopify retries for non-critical errors
+    return new Response(error.message || "Error processing webhook", {
+      status: 200,
+    });
+  }
+};
 
-                  if (transformedData) {
-                    await saveInventoryDataToSupabase([transformedData]);
-                  }
-                }
-              } catch (fetchError) {
-                console.error(`Error fetching inventory for variant ${variant.id}:`, fetchError);
+/**
+ * Handle ORDER_CREATE and ORDER_UPDATED webhooks
+ */
+async function handleOrderWebhook(shop: string, payload: any): Promise<void> {
+  try {
+    console.log(`[OrderWebhook] Processing order ${payload.id} for ${shop}`);
+
+    // Extract line items
+    const lineItems = (payload.line_items || []).map((item: any) => ({
+      shopify_line_item_id: String(item.id),
+      product_title: item.title || "",
+      variant_title: item.variant_title || null,
+      sku: item.sku || null,
+      quantity: item.quantity || 0,
+      price: item.price || "0.00",
+    }));
+
+    // Prepare order data for Lambda
+    const orderData: SyncOrderPayload = {
+      store_url: shop,
+      order: {
+        shopify_order_id: String(payload.id),
+        order_number: String(payload.order_number || payload.name),
+        financial_status: payload.financial_status || "pending",
+        fulfillment_status: payload.fulfillment_status || "unfulfilled",
+        total_price: payload.total_price || "0.00",
+        currency: payload.currency || "USD",
+        customer_email: payload.customer?.email || null,
+        customer_name: payload.customer
+          ? `${payload.customer.first_name || ""} ${payload.customer.last_name || ""}`.trim()
+          : null,
+        created_at: payload.created_at || new Date().toISOString(),
+      },
+      line_items: lineItems,
+    };
+
+    // Send to Lambda
+    await syncOrder(orderData);
+
+    console.log(`[OrderWebhook] Synced order ${payload.id}`);
+  } catch (error) {
+    console.error("[OrderWebhook] Error:", error);
+    throw error;
+  }
+}
+
+/**
+ * Handle FULFILLMENT webhooks
+ */
+async function handleFulfillmentWebhook(
+  shop: string,
+  payload: any
+): Promise<void> {
+  try {
+    console.log(`[FulfillmentWebhook] Processing for ${shop}`);
+
+    const trackingInfo = payload.tracking_company || payload.tracking_number
+      ? {
+          tracking_number: payload.tracking_number || "",
+          carrier: payload.tracking_company || "Unknown",
+          tracking_url: payload.tracking_url || payload.tracking_urls?.[0] || null,
+        }
+      : null;
+
+    if (!trackingInfo?.tracking_number) {
+      console.log("[FulfillmentWebhook] No tracking info, skipping");
+      return;
+    }
+
+    const fulfillmentData: SyncFulfillmentPayload = {
+      store_url: shop,
+      order_id: String(payload.order_id),
+      shopify_order_id: String(payload.order_id),
+      tracking_number: trackingInfo.tracking_number,
+      carrier: trackingInfo.carrier,
+      tracking_url: trackingInfo.tracking_url,
+      status: payload.status || "in_transit",
+    };
+
+    await syncFulfillment(fulfillmentData);
+
+    console.log(`[FulfillmentWebhook] Synced fulfillment for order ${payload.order_id}`);
+  } catch (error) {
+    console.error("[FulfillmentWebhook] Error:", error);
+    throw error;
+  }
+}
+
+/**
+ * Handle INVENTORY_LEVELS webhooks (quantity changes)
+ */
+async function handleInventoryLevelWebhook(
+  shop: string,
+  payload: any,
+  admin: any,
+  session: any
+): Promise<void> {
+  try {
+    console.log(`[InventoryLevelWebhook] Processing for ${shop}`);
+
+    const inventoryItemId = payload.inventory_item_id;
+
+    if (!inventoryItemId) {
+      console.log("[InventoryLevelWebhook] No inventory_item_id, skipping");
+      return;
+    }
+
+    // Fetch full inventory item details from Shopify
+    const response = await admin.graphql(
+      `#graphql
+        query GetInventoryItem($id: ID!) {
+          inventoryItem(id: $id) {
+            id
+            sku
+            tracked
+            variant {
+              id
+              title
+              displayName
+              product {
+                id
+                title
+              }
+            }
+            inventoryLevel(locationId: "${payload.location_id}") {
+              id
+              available
+              quantities(names: ["available", "on_hand", "committed"]) {
+                name
+                quantity
               }
             }
           }
         }
-        break;
+      `,
+      {
+        variables: {
+          id: `gid://shopify/InventoryItem/${inventoryItemId}`,
+        },
       }
+    );
 
-      case "PRODUCTS_DELETE": {
-        console.log(`✅ ${topic} - Product deleted`);
-        const productPayload = payload as ProductPayload;
-        // Delete inventory records for all variants of this product
-        const productId = productPayload.id.toString();
+    const result = await response.json();
+    const item = result.data?.inventoryItem;
 
-        try {
-          const { error } = await supabase
-            .from("inventory")
-            .delete()
-            .eq("product_id", productId)
-            .eq("store_url", storeUrl);
-
-          if (error) {
-            console.error(`Error deleting inventory for product ${productId}:`, error);
-          } else {
-            console.log(`✅ Deleted inventory records for product ${productId}`);
-          }
-        } catch (deleteError) {
-          console.error(`Error deleting product inventory:`, deleteError);
-        }
-        break;
-      }
-
-      // ==================== APP LIFECYCLE WEBHOOKS ====================
-      case "APP_UNINSTALLED": {
-        console.log(`⚠️ App uninstalled for store ${storeUrl}`);
-        // This is handled by webhooks.app.uninstalled.tsx
-        break;
-      }
-
-      default:
-        console.log(`⚠️ Unhandled webhook topic: ${topic}`);
-        // Don't throw error for unhandled webhooks - just log and continue
-        break;
+    if (!item) {
+      console.log("[InventoryLevelWebhook] Item not found in Shopify");
+      return;
     }
-  } catch (processingError) {
-    console.error(`❌ Error processing webhook ${topic}:`, processingError);
-    // Log the error but still return 200 to prevent Shopify from retrying
-    // Shopify will retry on non-200 responses, which could cause duplicates
-  }
 
-  return new Response("Webhook processed successfully", { status: 200 });
-};
+    // Prepare inventory data
+    const inventoryData: SyncInventoryPayload = {
+      store_url: shop,
+      items: [
+        {
+          shopify_inventory_item_id: String(inventoryItemId),
+          shopify_product_id: item.variant?.product?.id?.split("/").pop() || "",
+          product_title: item.variant?.product?.title || "Unknown Product",
+          variant_title: item.variant?.title || null,
+          sku: item.sku || null,
+          quantity: payload.available || 0,
+          location_id: String(payload.location_id),
+          location_name: "Primary", // Could fetch location name if needed
+        },
+      ],
+    };
+
+    await syncInventory(inventoryData);
+
+    console.log(`[InventoryLevelWebhook] Synced inventory for item ${inventoryItemId}`);
+  } catch (error) {
+    console.error("[InventoryLevelWebhook] Error:", error);
+    // Don't throw - inventory sync failures shouldn't block webhooks
+  }
+}
+
+/**
+ * Handle INVENTORY_ITEMS webhooks (metadata changes)
+ */
+async function handleInventoryItemWebhook(
+  shop: string,
+  payload: any,
+  topic: string
+): Promise<void> {
+  try {
+    console.log(`[InventoryItemWebhook] ${topic} for ${shop}`);
+
+    if (topic === "INVENTORY_ITEMS_DELETE") {
+      // Handle deletion if needed
+      console.log(`[InventoryItemWebhook] Item ${payload.id} deleted`);
+      return;
+    }
+
+    // For CREATE/UPDATE, metadata changes are captured via inventory levels
+    console.log(`[InventoryItemWebhook] Metadata updated for item ${payload.id}`);
+  } catch (error) {
+    console.error("[InventoryItemWebhook] Error:", error);
+  }
+}
