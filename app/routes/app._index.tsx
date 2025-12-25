@@ -1,72 +1,29 @@
 /**
  * Main Shopify App Dashboard
  *
- * Shows store overview, recent orders, inventory status, and tracking info.
- * Uses Lambda functions instead of direct Supabase queries.
+ * Simplified dashboard showing welcome message and link to full dashboard.
+ * This keeps the Shopify app lightweight and fast.
  */
 
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, Link } from "@remix-run/react";
+import { useLoaderData } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
-import { Page, Layout, Card, Button, Text, BlockStack } from "@shopify/polaris";
-import {
-  getOrders,
-  getInventory,
-  getLowStockItems,
-  disconnectStore,
-} from "~/utils/lambdaClient";
+import { Page, Card, Button, Text, BlockStack } from "@shopify/polaris";
 import { DASHBOARD_URLS } from "~/config/lambda.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  // Simplified loader - Lambda calls are optional
-  let recentOrders: any[] = [];
-  let inventory: any[] = [];
-  let lowStockItems: any[] = [];
-  let error: string | undefined;
-
-  // Only try Lambda calls if URLs are configured
-  const lambdaConfigured = DASHBOARD_URLS.affiliate &&
-    process.env.LAMBDA_ORDERS_URL &&
-    process.env.LAMBDA_INVENTORY_URL;
-
-  if (lambdaConfigured) {
-    try {
-      const results = await Promise.all([
-        getOrders(session.shop, 10).catch(() => []),
-        getInventory(session.shop, 20).catch(() => []),
-        getLowStockItems(session.shop, 10).catch(() => []),
-      ]);
-      recentOrders = results[0];
-      inventory = results[1];
-      lowStockItems = results[2];
-    } catch (err: any) {
-      console.error("[Dashboard] Error loading data:", err);
-      error = err.message || "Failed to load data";
-    }
-  }
-
   return json({
     shop: session.shop,
-    recentOrders,
-    inventory,
-    lowStockItems,
+    shopName: session.shop.split('.')[0],
     dashboardUrl: DASHBOARD_URLS.affiliate || "#",
-    error,
   });
 };
 
 export default function Index() {
-  const {
-    shop,
-    recentOrders,
-    inventory,
-    lowStockItems,
-    dashboardUrl,
-    error,
-  } = useLoaderData<typeof loader>();
+  const { shop, shopName, dashboardUrl } = useLoaderData<typeof loader>();
 
   return (
     <Page
@@ -78,113 +35,28 @@ export default function Index() {
       }}
     >
       <BlockStack gap="500">
-        {error && (
-          <Card>
-            <Text as="p" tone="critical">
-              Error loading data: {error}
-            </Text>
-          </Card>
-        )}
-
         {/* Welcome Card */}
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">
-              Welcome to Commercive!
+              Welcome to Commercive, {shopName}!
             </Text>
             <Text as="p">
-              Your Shopify store <strong>{shop}</strong> is connected to the Commercive platform.
+              Your Shopify store <strong>{shop}</strong> is successfully connected to the Commercive platform.
             </Text>
             <Text as="p">
-              Access your full dashboard for complete inventory management, order tracking, and affiliate features.
+              Access your full dashboard for complete inventory management, order tracking, affiliate features, and analytics.
             </Text>
             <Button
               url={dashboardUrl}
               external
               variant="primary"
+              size="large"
             >
               Open Full Dashboard →
             </Button>
           </BlockStack>
         </Card>
-
-        {/* Quick Stats */}
-        <Layout>
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200">
-                <Text as="h3" variant="headingSm">
-                  Recent Orders
-                </Text>
-                <Text as="p" variant="heading2xl">
-                  {recentOrders.length}
-                </Text>
-                <Text as="p" tone="subdued">
-                  Last 10 orders
-                </Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200">
-                <Text as="h3" variant="headingSm">
-                  Inventory Items
-                </Text>
-                <Text as="p" variant="heading2xl">
-                  {inventory.length}
-                </Text>
-                <Text as="p" tone="subdued">
-                  Products synced
-                </Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200">
-                <Text as="h3" variant="headingSm">
-                  Low Stock Alerts
-                </Text>
-                <Text as="p" variant="heading2xl" tone={lowStockItems.length > 0 ? "critical" : "success"}>
-                  {lowStockItems.length}
-                </Text>
-                <Text as="p" tone="subdued">
-                  Items need restock
-                </Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-        </Layout>
-
-        {/* Low Stock Items */}
-        {lowStockItems.length > 0 && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">
-                Low Stock Alerts
-              </Text>
-              {lowStockItems.slice(0, 5).map((item) => (
-                <div key={item.inventory_id} style={{ padding: '8px 0', borderBottom: '1px solid #e1e3e5' }}>
-                  <Text as="p" fontWeight="semibold">
-                    {item.product_title}
-                    {item.variant_title && ` - ${item.variant_title}`}
-                  </Text>
-                  <Text as="p" tone="subdued">
-                    SKU: {item.sku || "N/A"} | Quantity: {item.quantity}
-                  </Text>
-                </div>
-              ))}
-              {lowStockItems.length > 5 && (
-                <Text as="p" tone="subdued">
-                  And {lowStockItems.length - 5} more items...
-                </Text>
-              )}
-            </BlockStack>
-          </Card>
-        )}
 
         {/* Help Card */}
         <Card>

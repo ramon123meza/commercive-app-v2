@@ -7,8 +7,8 @@
  * Updated to use Lambda functions instead of Supabase.
  */
 
-import { createDashboardUser, upsertStore } from './lambdaClient';
-import type { CreateUserPayload, UpsertStorePayload } from '~/types/api.types';
+import { createShopifyMerchant, upsertStore } from './lambdaClient';
+import type { CreateMerchantPayload, UpsertStorePayload } from '~/types/api.types';
 
 interface CreateDashboardUserParams {
   shopDomain: string;
@@ -39,33 +39,34 @@ export async function createDashboardUserViaLambda(
     // Generate temporary password (user will need to reset via email)
     const tempPassword = generateTempPassword();
 
-    // Prepare user data
-    const userData: CreateUserPayload = {
+    // Prepare merchant data
+    const merchantData: CreateMerchantPayload = {
       email: email || `${shopDomain.split('.')[0]}@temp.commercive.com`,
       password: tempPassword,
       first_name: shopName || shopDomain.split('.')[0],
       last_name: 'Store',
-      role: 'store_owner',
       store_url: shopDomain,
+      phone: '',
     };
 
-    console.log(`[createDashboardUser] Creating user: ${userData.email}`);
+    console.log(`[createDashboardUser] Creating merchant: ${merchantData.email}`);
 
-    // Create user via Lambda
-    const userResponse = await createDashboardUser(userData);
+    // Create merchant user via Lambda
+    const userResponse = await createShopifyMerchant(merchantData);
 
-    if (!userResponse || userResponse.message.includes('error')) {
-      throw new Error(userResponse?.message || 'Failed to create user');
+    if (!userResponse || !userResponse.user_id) {
+      throw new Error(userResponse?.message || 'Failed to create merchant');
     }
 
-    console.log(`[createDashboardUser] User created successfully`);
+    console.log(`[createDashboardUser] Merchant created: ${userResponse.user_id}`);
 
-    // Upsert store data
+    // Upsert store data with user_id for linking
     const storeData: UpsertStorePayload = {
       store_url: shopDomain,
       shop_name: shopName || shopDomain,
-      email: email || userData.email,
+      email: email || merchantData.email,
       access_token: accessToken,
+      user_id: userResponse.user_id,  // Link user to store
     };
 
     console.log(`[createDashboardUser] Upserting store: ${shopDomain}`);

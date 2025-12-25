@@ -17,6 +17,14 @@ import sys
 import boto3
 from botocore.exceptions import ClientError
 
+# =============================================================================
+# AWS CREDENTIALS - Set via environment variables or replace placeholders below
+# =============================================================================
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', 'YOUR_AWS_ACCESS_KEY_ID_HERE')
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', 'YOUR_AWS_SECRET_ACCESS_KEY_HERE')
+AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+# =============================================================================
+
 # ANSI color codes
 GREEN = '\033[92m'
 RED = '\033[91m'
@@ -28,14 +36,14 @@ RESET = '\033[0m'
 def verify_schema():
     """Verify the table schema"""
 
-    # Get AWS credentials
-    access_key = os.environ.get('AWS_ACCESS_KEY_ID')
-    secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
-    region = os.environ.get('AWS_REGION', 'us-east-1')
+    # Get AWS credentials from environment variables
+    access_key = AWS_ACCESS_KEY_ID if AWS_ACCESS_KEY_ID != "YOUR_AWS_ACCESS_KEY_ID_HERE" else None
+    secret_key = AWS_SECRET_ACCESS_KEY if AWS_SECRET_ACCESS_KEY != "YOUR_AWS_SECRET_ACCESS_KEY_HERE" else None
+    region = AWS_REGION
 
     if not access_key or not secret_key:
-        print(f"{RED}✗ AWS credentials not found in environment{RESET}")
-        print(f"{YELLOW}Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY first{RESET}")
+        print(f"{RED}✗ AWS credentials not found{RESET}")
+        print(f"{YELLOW}Set credentials in script or environment{RESET}")
         return False
 
     # Create client

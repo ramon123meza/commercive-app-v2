@@ -10,6 +10,7 @@ import { LAMBDA_URLS } from '~/config/lambda.server';
 import type {
   ApiResponse,
   CreateUserPayload,
+  CreateMerchantPayload,
   SignupResponse,
   UpsertStorePayload,
   Store,
@@ -97,6 +98,27 @@ export async function createDashboardUser(
       return response.data;
     } catch (error) {
       handleApiError(error, 'createDashboardUser');
+    }
+  });
+}
+
+/**
+ * Create a Shopify merchant user (bypasses email verification)
+ */
+export async function createShopifyMerchant(
+  merchantData: CreateMerchantPayload
+): Promise<{ user_id: string; message: string }> {
+  const client = createApiClient(LAMBDA_URLS.auth);
+
+  return retryWithBackoff(async () => {
+    try {
+      const response = await client.post<ApiResponse<{ user_id: string; message: string }>>(
+        '/create-merchant',
+        merchantData
+      );
+      return response.data.data || { user_id: '', message: response.data.message || '' };
+    } catch (error) {
+      handleApiError(error, 'createShopifyMerchant');
     }
   });
 }

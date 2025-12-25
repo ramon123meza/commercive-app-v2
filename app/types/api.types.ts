@@ -110,11 +110,21 @@ export interface CreateUserPayload {
   phone?: string;
 }
 
+export interface CreateMerchantPayload {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  store_url: string;
+  phone?: string;
+}
+
 export interface UpsertStorePayload {
   store_url: string;
   shop_name: string;
   email: string;
   access_token: string;
+  user_id?: string;  // Optional user ID for linking
 }
 
 export interface SyncOrderPayload {
