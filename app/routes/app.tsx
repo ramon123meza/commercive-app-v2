@@ -1,5 +1,4 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
 import { Link, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
@@ -10,38 +9,20 @@ import { authenticate } from "../shopify.server";
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
-
-  return json({ apiKey: process.env.SHOPIFY_API_KEY || "" });
+  try {
+    await authenticate.admin(request);
+    return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  } catch (error: any) {
+    console.error("[app.tsx loader] Authentication error:", error?.message || error);
+    throw error;
+  }
 };
 
 export default function App() {
   const { apiKey } = useLoaderData<typeof loader>();
 
   return (
-    <AppProvider
-      config={{
-        apiKey,
-        host: new URL(globalThis.location.href).searchParams.get("host") || "",
-        forceRedirect: true,
-      }}
-      i18n={{
-        Polaris: {
-          ResourceList: {
-            sortingLabel: "Sort by",
-            defaultItemSingular: "item",
-            defaultItemPlural: "items",
-            showing: "Showing {itemsCount} {resource}",
-            Item: {
-              viewItem: "View details for {itemName}",
-            },
-          },
-          Common: {
-            checkbox: "checkbox",
-          },
-        },
-      }}
-    >
+    <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
         <Link to="/app" rel="home">
           Home
