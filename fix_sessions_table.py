@@ -28,14 +28,6 @@ import time
 import boto3
 from botocore.exceptions import ClientError
 
-# =============================================================================
-# HARDCODED AWS CREDENTIALS - Replace these with your actual values
-# =============================================================================
-AWS_ACCESS_KEY_ID = "YOUR_AWS_ACCESS_KEY_ID_HERE"
-AWS_SECRET_ACCESS_KEY = "YOUR_AWS_SECRET_ACCESS_KEY_HERE"
-AWS_REGION = "us-east-1"
-# =============================================================================
-
 # Color codes for terminal output
 class Colors:
     HEADER = '\033[95m'
@@ -72,43 +64,27 @@ def print_info(message):
 
 def get_aws_credentials():
     """
-    Get AWS credentials from hardcoded values, environment variables, or prompt user
+    Get AWS credentials from environment variables or prompt user
     """
     print_header("AWS Credentials")
 
-    # Priority: Hardcoded values > Environment variables > User prompt
-    access_key = None
-    secret_key = None
-    region = AWS_REGION
+    # Try to get from environment first
+    access_key = os.environ.get('AWS_ACCESS_KEY_ID')
+    secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+    region = os.environ.get('AWS_REGION', 'us-east-1')
 
-    # Check hardcoded values first
-    if AWS_ACCESS_KEY_ID != "YOUR_AWS_ACCESS_KEY_ID_HERE":
-        access_key = AWS_ACCESS_KEY_ID
-        print_success(f"Using hardcoded AWS_ACCESS_KEY_ID: {access_key[:8]}...")
-
-    if AWS_SECRET_ACCESS_KEY != "YOUR_AWS_SECRET_ACCESS_KEY_HERE":
-        secret_key = AWS_SECRET_ACCESS_KEY
-        print_success("Using hardcoded AWS_SECRET_ACCESS_KEY")
-
-    # Fall back to environment variables
+    # If not in environment, prompt user
     if not access_key:
-        access_key = os.environ.get('AWS_ACCESS_KEY_ID')
-        if access_key:
-            print_success(f"Found AWS_ACCESS_KEY_ID in environment: {access_key[:8]}...")
-
-    if not secret_key:
-        secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
-        if secret_key:
-            print_success("Found AWS_SECRET_ACCESS_KEY in environment")
-
-    # Fall back to user prompt
-    if not access_key:
-        print_info("AWS_ACCESS_KEY_ID not found")
+        print_info("AWS_ACCESS_KEY_ID not found in environment")
         access_key = input("Enter AWS Access Key ID: ").strip()
+    else:
+        print_success(f"Found AWS_ACCESS_KEY_ID in environment: {access_key[:8]}...")
 
     if not secret_key:
-        print_info("AWS_SECRET_ACCESS_KEY not found")
+        print_info("AWS_SECRET_ACCESS_KEY not found in environment")
         secret_key = input("Enter AWS Secret Access Key: ").strip()
+    else:
+        print_success("Found AWS_SECRET_ACCESS_KEY in environment")
 
     print_info(f"Using AWS Region: {region}")
 

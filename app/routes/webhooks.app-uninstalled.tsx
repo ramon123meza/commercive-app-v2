@@ -6,21 +6,19 @@
  */
 
 import type { ActionFunctionArgs } from "@remix-run/node";
-import { authenticate } from "../shopify.server";
-import db from "../db.server";
+import { authenticate, sessionStorage } from "../shopify.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop } = await authenticate.webhook(request);
+  const { shop, session } = await authenticate.webhook(request);
 
   console.log(`[AppUninstalled] Cleaning up sessions for ${shop}`);
 
   try {
-    // Delete all sessions for this shop from Prisma
-    await db.session.deleteMany({
-      where: { shop },
-    });
-
-    console.log(`[AppUninstalled] Sessions deleted for ${shop}`);
+    // Delete the session from DynamoDB using Shopify's session storage
+    if (session?.id) {
+      await sessionStorage.deleteSession(session.id);
+      console.log(`[AppUninstalled] Session deleted for ${shop}`);
+    }
 
     // Note: We do NOT delete store data from DynamoDB
     // Users can still access their dashboard and reconnect later
