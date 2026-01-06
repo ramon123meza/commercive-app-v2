@@ -24,7 +24,7 @@ const client = new DynamoDBClient({
 const ddbDocClient = DynamoDBDocumentClient.from(client);
 
 export interface LinkUserToStoreParams {
-  email: string;
+  userId: string;
   shopDomain: string;
   accessToken?: string;
 }
@@ -40,44 +40,30 @@ export interface LinkUserToStoreResult {
  * Link a user account to an existing Shopify store
  *
  * This function:
- * 1. Finds user by email in commercive_users
+ * 1. Uses user_id directly (no email lookup needed)
  * 2. Finds store by shop_domain in commercive_stores
  * 3. Creates a link in commercive_store_users
  * 4. Handles duplicate link prevention
+ *
+ * Updated 2026-01-06: Uses user_id instead of email for shop_handle-based matching
  */
 export async function linkUserToStore(
   params: LinkUserToStoreParams
 ): Promise<LinkUserToStoreResult> {
-  const { email, shopDomain, accessToken } = params;
+  const { userId, shopDomain } = params;
 
   try {
-    console.log(`[linkUserToStore] Linking ${email} to ${shopDomain}`);
+    console.log(`[linkUserToStore] Linking user ${userId} to ${shopDomain}`);
 
-    // Step 1: Find user by email
-    const userQuery = new QueryCommand({
-      TableName: 'commercive_users',
-      IndexName: 'email-index',
-      KeyConditionExpression: 'email = :email',
-      ExpressionAttributeValues: {
-        ':email': email.toLowerCase(),
-      },
-    });
-
-    const userResult = await ddbDocClient.send(userQuery);
-    const users = userResult.Items || [];
-
-    if (users.length === 0) {
+    // Validate userId is provided
+    if (!userId) {
       return {
         success: false,
-        message:
-          'No account found with that email. Please create an account in the affiliate dashboard first.',
+        message: 'User ID is required to link your account.',
       };
     }
 
-    const user = users[0];
-    console.log(`[linkUserToStore] Found user: ${user.user_id}`);
-
-    // Step 2: Find store by shop_domain
+    // Step 1: Find store by shop_domain
     const storeQuery = new QueryCommand({
       TableName: 'commercive_stores',
       IndexName: 'domain-index',
@@ -101,13 +87,13 @@ export async function linkUserToStore(
     const store = stores[0];
     console.log(`[linkUserToStore] Found store: ${store.store_id}`);
 
-    // Step 3: Check if link already exists
+    // Step 2: Check if link already exists
     const existingLinksQuery = new QueryCommand({
       TableName: 'commercive_store_users',
       IndexName: 'user-stores-index',
       KeyConditionExpression: 'user_id = :userId',
       ExpressionAttributeValues: {
-        ':userId': user.user_id,
+        ':userId': userId,
       },
     });
 
@@ -126,18 +112,18 @@ export async function linkUserToStore(
       return {
         success: true,
         message: 'Your account is already linked to this store.',
-        userId: user.user_id,
+        userId: userId,
         storeId: store.store_id,
       };
     }
 
-    // Step 4: Create store-user link
-    const linkId = `${user.user_id}_${store.store_id}`;
+    // Step 3: Create store-user link
+    const linkId = `${userId}_${store.store_id}`;
     const now = new Date().toISOString();
 
     const linkData = {
       link_id: linkId,
-      user_id: user.user_id,
+      user_id: userId,
       store_id: store.store_id,
       role: 'owner', // User who links is the owner
       created_at: now,
@@ -151,13 +137,13 @@ export async function linkUserToStore(
     await ddbDocClient.send(putCommand);
 
     console.log(
-      `[linkUserToStore] Successfully linked user ${user.user_id} to store ${store.store_id}`
+      `[linkUserToStore] Successfully linked user ${userId} to store ${store.store_id}`
     );
 
     return {
       success: true,
       message: 'Store linked successfully to your account!',
-      userId: user.user_id,
+      userId: userId,
       storeId: store.store_id,
     };
   } catch (error) {

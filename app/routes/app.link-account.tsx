@@ -18,35 +18,35 @@ import { linkUserToStore } from '~/utils/linkUserToStore';
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const url = new URL(request.url);
-  const email = url.searchParams.get('email');
+  const userId = url.searchParams.get('user_id');
 
   return json({
     shop: session.shop,
     shopName: session.shop.split('.')[0],
-    email: email || null,
+    userId: userId || null,
   });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const formData = await request.formData();
-  const email = formData.get('email') as string;
+  const userId = formData.get('user_id') as string;
 
-  if (!email) {
+  if (!userId) {
     return json(
       {
         success: false,
-        error: 'Email is required to link your account.',
+        error: 'User ID is required to link your account. Please access this page from the affiliate dashboard.',
       },
       { status: 400 }
     );
   }
 
   try {
-    console.log(`[link-account] Attempting to link ${email} to ${session.shop}`);
+    console.log(`[link-account] Attempting to link user ${userId} to ${session.shop}`);
 
     const result = await linkUserToStore({
-      email,
+      userId,
       shopDomain: session.shop,
       accessToken: session.accessToken,
     });
@@ -84,7 +84,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function LinkAccount() {
-  const { shop, shopName, email } = useLoaderData<typeof loader>();
+  const { shop, shopName, userId } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
 
@@ -129,26 +129,26 @@ export default function LinkAccount() {
                   Your store <strong>{shop}</strong> is already installed with the Commercive app.
                 </Text>
                 <Text as="p">
-                  Click below to link this store to your Commercive dashboard account (<strong>{email || 'your account'}</strong>).
+                  Click below to link this store to your Commercive dashboard account.
                 </Text>
               </BlockStack>
 
-              {!email && (
+              {!userId && (
                 <Banner status="warning">
                   <Text as="p">
-                    No email address was provided. Please make sure you're accessing this page from the "Connect Store" button in your affiliate dashboard.
+                    No account information was provided. Please make sure you're accessing this page from the "Connect Store" button in your affiliate dashboard.
                   </Text>
                 </Banner>
               )}
 
               <Form method="post">
-                <input type="hidden" name="email" value={email || ''} />
+                <input type="hidden" name="user_id" value={userId || ''} />
                 <InlineStack gap="300">
                   <Button
                     submit
                     variant="primary"
                     loading={isSubmitting}
-                    disabled={!email || isSubmitting}
+                    disabled={!userId || isSubmitting}
                   >
                     {isSubmitting ? 'Linking Account...' : 'Link My Account'}
                   </Button>
