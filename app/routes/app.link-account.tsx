@@ -56,6 +56,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         {
           success: false,
           error: result.message,
+          errorCode: result.errorCode,
         },
         { status: 400 }
       );
@@ -110,8 +111,56 @@ export default function LinkAccount() {
           </Banner>
         )}
 
-        {/* Error State */}
-        {actionData?.success === false && (
+        {/* Error State - Account Not Approved */}
+        {actionData?.success === false && actionData?.errorCode === 'ACCOUNT_NOT_APPROVED' && (
+          <Banner status="warning" title="Account Pending Approval">
+            <BlockStack gap="200">
+              <Text as="p">{actionData.error}</Text>
+              <Text as="p">
+                Please wait for admin approval or contact support if you believe this is an error.
+              </Text>
+            </BlockStack>
+          </Banner>
+        )}
+
+        {/* Error State - Not Store Owner */}
+        {actionData?.success === false && actionData?.errorCode === 'NOT_STORE_OWNER' && (
+          <Banner status="warning" title="Store Owner Permission Required">
+            <BlockStack gap="200">
+              <Text as="p">{actionData.error}</Text>
+              <Text as="p">
+                Only users with store owner permissions can connect a Shopify store. Please contact your admin to update your account permissions.
+              </Text>
+            </BlockStack>
+          </Banner>
+        )}
+
+        {/* Error State - Already Has Store */}
+        {actionData?.success === false && actionData?.errorCode === 'ALREADY_HAS_STORE' && (
+          <Banner status="warning" title="Store Already Connected">
+            <BlockStack gap="200">
+              <Text as="p">{actionData.error}</Text>
+              <Text as="p">
+                To connect a different store, please disconnect your current store first from the affiliate dashboard.
+              </Text>
+            </BlockStack>
+          </Banner>
+        )}
+
+        {/* Error State - Store Already Linked to Another Affiliate */}
+        {actionData?.success === false && actionData?.errorCode === 'STORE_ALREADY_LINKED' && (
+          <Banner status="critical" title="Store Unavailable">
+            <BlockStack gap="200">
+              <Text as="p">{actionData.error}</Text>
+              <Text as="p">
+                Each Shopify store can only be connected to one affiliate account.
+              </Text>
+            </BlockStack>
+          </Banner>
+        )}
+
+        {/* Error State - Generic/Other Errors */}
+        {actionData?.success === false && !['ACCOUNT_NOT_APPROVED', 'NOT_STORE_OWNER', 'ALREADY_HAS_STORE', 'STORE_ALREADY_LINKED'].includes(actionData?.errorCode || '') && (
           <Banner status="critical" title="Linking Failed">
             <Text as="p">{actionData.error}</Text>
           </Banner>
