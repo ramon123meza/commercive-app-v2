@@ -25,23 +25,43 @@ import {
   Banner,
   List,
   Divider,
-  Link,
 } from "@shopify/polaris";
-import { ClipboardIcon, ExternalIcon } from "@shopify/polaris-icons";
+import { ClipboardIcon } from "@shopify/polaris-icons";
 import { DASHBOARD_URLS } from "~/config/lambda.server";
 import { getStore } from "~/utils/lambdaClient";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  const store = await getStore(session.shop);
+  console.log(`[app._index] Loading store data for: ${session.shop}`);
+
+  let store = null;
+  let storeCode = null;
+  let isLinked = false;
+
+  try {
+    store = await getStore(session.shop);
+    console.log(`[app._index] Store data retrieved:`, store ? 'found' : 'not found');
+    if (store) {
+      console.log(`[app._index] Store code: ${store.store_code || 'none'}`);
+      storeCode = store.store_code || null;
+      isLinked = store.is_linked_to_affiliate || false;
+    }
+  } catch (error) {
+    console.error(`[app._index] Error fetching store:`, error);
+  }
+
+  // Use environment variable for dashboard URL
+  const dashboardUrl = DASHBOARD_URLS.affiliate || process.env.AFFILIATE_DASHBOARD_URL || "https://main.d17uirvlkd5qgw.amplifyapp.com";
+
+  console.log(`[app._index] Dashboard URL: ${dashboardUrl}`);
 
   return json({
     shop: session.shop,
     shopName: session.shop.split(".")[0],
-    storeCode: store?.store_code || null,
-    isLinked: store?.is_linked_to_affiliate || false,
-    dashboardUrl: DASHBOARD_URLS.affiliate || "https://main.d17uirvlkd5qgw.amplifyapp.com",
+    storeCode,
+    isLinked,
+    dashboardUrl,
   });
 };
 
@@ -54,6 +74,12 @@ export default function Index() {
       navigator.clipboard.writeText(storeCode);
       shopify.toast.show("Store code copied to clipboard!");
     }
+  };
+
+  // Function to open external URLs properly (breaks out of iframe)
+  const openExternal = (url: string) => {
+    // Use window.open with _top to break out of Shopify iframe
+    window.open(url, "_top");
   };
 
   return (
@@ -111,8 +137,8 @@ export default function Index() {
             ) : (
               <Banner tone="warning">
                 <p>
-                  Store code not yet generated. Please refresh this page or
-                  reinstall the app if this persists.
+                  Store code not yet generated. Please refresh this page. If the issue persists,
+                  try reinstalling the app or contact support.
                 </p>
               </Banner>
             )}
@@ -150,10 +176,8 @@ export default function Index() {
               </List>
               <InlineStack gap="300">
                 <Button
-                  url={`${dashboardUrl}/signup`}
-                  external
                   variant="primary"
-                  icon={ExternalIcon}
+                  onClick={() => openExternal(`${dashboardUrl}/signup`)}
                 >
                   Create Account
                 </Button>
@@ -181,10 +205,8 @@ export default function Index() {
               </List>
               <InlineStack gap="300">
                 <Button
-                  url={`${dashboardUrl}/login`}
-                  external
                   variant="secondary"
-                  icon={ExternalIcon}
+                  onClick={() => openExternal(`${dashboardUrl}/login`)}
                 >
                   Log In to Dashboard
                 </Button>
@@ -295,10 +317,10 @@ export default function Index() {
               Commercive, visit our support page or contact our team.
             </Text>
             <InlineStack gap="300">
-              <Button url={`${dashboardUrl}/support`} external>
+              <Button onClick={() => openExternal(`${dashboardUrl}/support`)}>
                 Support Center
               </Button>
-              <Button url="mailto:support@commercive.co" external>
+              <Button onClick={() => openExternal("mailto:support@commercive.co")}>
                 Contact Support
               </Button>
             </InlineStack>
@@ -314,6 +336,24 @@ export default function Index() {
             </p>
           </Banner>
         )}
+
+        {/* Debug info - remove in production */}
+        <Card>
+          <BlockStack gap="200">
+            <Text as="h3" variant="headingSm" tone="subdued">
+              Debug Info (Remove in production)
+            </Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              Shop: {shop}
+            </Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              Store Code: {storeCode || "Not generated"}
+            </Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              Dashboard URL: {dashboardUrl}
+            </Text>
+          </BlockStack>
+        </Card>
       </BlockStack>
     </Page>
   );
