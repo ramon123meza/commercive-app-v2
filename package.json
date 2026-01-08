@@ -24,10 +24,12 @@
     "@shopify/polaris": "^13.9.5",
     "@shopify/shopify-app-remix": "^3.5.1",
     "@shopify/shopify-app-session-storage-dynamodb": "^5.0.6",
+    "@types/uuid": "^11.0.0",
     "axios": "^1.7.9",
     "isbot": "^5.1.21",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@remix-run/dev": "^2.17.2",

@@ -9,21 +9,33 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
-import { Page, Card, Button, Text, BlockStack } from "@shopify/polaris";
+import { Page, Card, Button, Text, BlockStack, InlineStack, Icon } from "@shopify/polaris";
+import { ClipboardIcon } from "@shopify/polaris-icons";
 import { DASHBOARD_URLS } from "~/config/lambda.server";
+import { getStore } from "~/utils/lambdaClient";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
+  const store = await getStore(session.shop);
+
   return json({
     shop: session.shop,
     shopName: session.shop.split('.')[0],
+    storeCode: store?.store_code || null,
     dashboardUrl: DASHBOARD_URLS.affiliate || "#",
   });
 };
 
 export default function Index() {
-  const { shop, shopName, dashboardUrl } = useLoaderData<typeof loader>();
+  const { shop, shopName, storeCode, dashboardUrl } = useLoaderData<typeof loader>();
+
+  const copyToClipboard = () => {
+    if (storeCode) {
+      navigator.clipboard.writeText(storeCode);
+      shopify.toast.show("Store code copied to clipboard!");
+    }
+  };
 
   return (
     <Page
@@ -35,6 +47,35 @@ export default function Index() {
       }}
     >
       <BlockStack gap="500">
+        {/* Store Code Card */}
+        {storeCode && (
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Your Store Code
+              </Text>
+              <Text as="p">
+                Use this code to link your store in the Commercive dashboard:
+              </Text>
+              <InlineStack gap="300" blockAlign="center">
+                <Text as="p" variant="headingLg" fontWeight="bold">
+                  {storeCode}
+                </Text>
+                <Button
+                  icon={ClipboardIcon}
+                  onClick={copyToClipboard}
+                  accessibilityLabel="Copy store code"
+                >
+                  Copy Code
+                </Button>
+              </InlineStack>
+              <Text as="p" tone="subdued">
+                Go to the dashboard, navigate to Stores, and enter this code to connect your account.
+              </Text>
+            </BlockStack>
+          </Card>
+        )}
+
         {/* Welcome Card */}
         <Card>
           <BlockStack gap="300">

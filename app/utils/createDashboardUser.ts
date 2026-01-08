@@ -9,6 +9,7 @@
 
 import { createShopifyMerchant, upsertStore } from './lambdaClient';
 import type { CreateMerchantPayload, UpsertStorePayload } from '~/types/api.types';
+import { generateStoreCode } from './generateStoreCode';
 
 interface CreateDashboardUserParams {
   shopDomain: string;
@@ -60,13 +61,16 @@ export async function createDashboardUserViaLambda(
 
     console.log(`[createDashboardUser] Merchant created: ${userResponse.user_id}`);
 
-    // Upsert store data with user_id for linking
+    const storeCode = generateStoreCode();
+    console.log(`[createDashboardUser] Generated store code: ${storeCode}`);
+
     const storeData: UpsertStorePayload = {
       store_url: shopDomain,
       shop_name: shopName || shopDomain,
       email: email || merchantData.email,
       access_token: accessToken,
-      user_id: userResponse.user_id,  // Link user to store
+      user_id: userResponse.user_id,
+      store_code: storeCode,
     };
 
     console.log(`[createDashboardUser] Upserting store: ${shopDomain}`);

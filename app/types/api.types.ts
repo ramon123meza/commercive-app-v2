@@ -24,6 +24,7 @@ export interface Store {
   shop_name: string;
   email: string;
   access_token: string;
+  store_code?: string;
   is_inventory_fetched: boolean;
   created_at: string;
   updated_at?: string;
@@ -124,7 +125,8 @@ export interface UpsertStorePayload {
   shop_name: string;
   email: string;
   access_token: string;
-  user_id?: string;  // Optional user ID for linking
+  user_id?: string;
+  store_code?: string;
 }
 
 export interface SyncOrderPayload {

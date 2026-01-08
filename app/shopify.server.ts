@@ -143,6 +143,20 @@ const shopify = shopifyApp({
         // Non-blocking error - merchant can still use Shopify app
         console.error(`[afterAuth] Error creating dashboard user:`, error);
       }
+
+      // Sync initial inventory in background (non-blocking)
+      (async () => {
+        try {
+          const { syncInitialInventory } = await import(
+            "./utils/syncInitialInventory"
+          );
+          console.log(`[afterAuth] Starting initial inventory sync for ${session.shop}`);
+          const count = await syncInitialInventory(session, admin);
+          console.log(`[afterAuth] Initial sync complete: ${count} items`);
+        } catch (error) {
+          console.error(`[afterAuth] Error syncing initial inventory:`, error);
+        }
+      })();
     },
   },
   ...(process.env.SHOP_CUSTOM_DOMAIN
