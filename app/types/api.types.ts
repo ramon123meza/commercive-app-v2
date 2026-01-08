@@ -26,6 +26,8 @@ export interface Store {
   access_token: string;
   store_code?: string;
   is_inventory_fetched: boolean;
+  is_linked_to_affiliate?: boolean;
+  linked_affiliate_id?: string;
   created_at: string;
   updated_at?: string;
 }

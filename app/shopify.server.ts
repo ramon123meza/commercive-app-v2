@@ -109,11 +109,10 @@ const shopify = shopifyApp({
       console.log("[afterAuth] Registering webhooks...");
       shopify.registerWebhooks({ session });
 
-      // Auto-create dashboard user via Lambda when merchant installs app
+      // Create store record with store code (NO auto user creation)
+      // Users must sign up manually on the affiliate dashboard
       try {
-        const { createDashboardUserViaLambda } = await import(
-          "./utils/createDashboardUser"
-        );
+        const { createStoreOnly } = await import("./utils/createStoreOnly");
 
         // Fetch shop details from Shopify to get owner email and name
         const shopResponse = await admin.rest.resources.Shop.all({
@@ -124,24 +123,24 @@ const shopify = shopifyApp({
         const shopEmail = shop?.email || shop?.shop_owner || undefined;
         const shopName = shop?.name || session.shop.split(".")[0];
 
-        console.log(`[afterAuth] Creating dashboard user for ${session.shop}`);
+        console.log(`[afterAuth] Creating/updating store record for ${session.shop}`);
 
-        // Create dashboard user via Lambda
-        const result = await createDashboardUserViaLambda({
+        // Create store record with store code (no user account created)
+        const result = await createStoreOnly({
           shopDomain: session.shop,
-          accessToken: session.accessToken,
+          accessToken: session.accessToken!,
           email: shopEmail,
           shopName: shopName,
         });
 
         if (result.success) {
-          console.log(`[afterAuth] Dashboard user created:`, result);
+          console.log(`[afterAuth] Store created with code: ${result.storeCode}`);
         } else {
-          console.error(`[afterAuth] User creation failed:`, result.error);
+          console.error(`[afterAuth] Store creation failed:`, result.error);
         }
       } catch (error) {
         // Non-blocking error - merchant can still use Shopify app
-        console.error(`[afterAuth] Error creating dashboard user:`, error);
+        console.error(`[afterAuth] Error creating store record:`, error);
       }
 
       // Sync initial inventory in background (non-blocking)

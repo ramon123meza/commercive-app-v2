@@ -191,17 +191,18 @@ export async function setInventoryFetched(
 }
 
 /**
- * Get store details
+ * Get store details by shop domain
+ * Uses the /stores/by-domain endpoint which doesn't require user auth
  */
 export async function getStore(storeUrl: string): Promise<Store | null> {
   const client = createApiClient(LAMBDA_URLS.stores);
 
   try {
-    const response = await client.get<ApiResponse<Store>>('/stores', {
-      params: { store_url: storeUrl },
+    const response = await client.get<ApiResponse<{ store: Store }>>('/stores/by-domain', {
+      params: { shop_domain: storeUrl },
     });
 
-    return response.data.data || null;
+    return response.data.data?.store || null;
   } catch (error) {
     console.error('Error getting store:', error);
     return null;
