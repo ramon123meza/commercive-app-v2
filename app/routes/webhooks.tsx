@@ -201,16 +201,23 @@ async function handleInventoryLevelWebhook(
     console.log(`[InventoryLevelWebhook] Processing for ${shop}`);
 
     const inventoryItemId = payload.inventory_item_id;
+    const locationId = payload.location_id;
 
     if (!inventoryItemId) {
       console.log("[InventoryLevelWebhook] No inventory_item_id, skipping");
       return;
     }
 
+    // Convert numeric IDs to Shopify GID format
+    const inventoryItemGid = `gid://shopify/InventoryItem/${inventoryItemId}`;
+    const locationGid = locationId ? `gid://shopify/Location/${locationId}` : null;
+
+    console.log(`[InventoryLevelWebhook] Fetching item ${inventoryItemGid}, location ${locationGid}`);
+
     // Fetch full inventory item details from Shopify
     const response = await admin.graphql(
       `#graphql
-        query GetInventoryItem($id: ID!) {
+        query GetInventoryItem($id: ID!, $locationId: ID) {
           inventoryItem(id: $id) {
             id
             sku
@@ -224,7 +231,7 @@ async function handleInventoryLevelWebhook(
                 title
               }
             }
-            inventoryLevel(locationId: "${payload.location_id}") {
+            inventoryLevel(locationId: $locationId) {
               id
               available
               quantities(names: ["available", "on_hand", "committed"]) {
@@ -237,7 +244,8 @@ async function handleInventoryLevelWebhook(
       `,
       {
         variables: {
-          id: `gid://shopify/InventoryItem/${inventoryItemId}`,
+          id: inventoryItemGid,
+          locationId: locationGid,
         },
       }
     );
