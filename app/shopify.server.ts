@@ -210,17 +210,26 @@ const shopify = shopifyApp({
 
       console.log("[afterAuth] ====== afterAuth HOOK COMPLETE ======");
 
-      // Sync initial inventory in background (non-blocking)
+      // Sync initial inventory and orders in background (non-blocking)
       (async () => {
         try {
+          // Sync inventory first
           const { syncInitialInventory } = await import(
             "./utils/syncInitialInventory"
           );
           console.log(`[afterAuth] Starting initial inventory sync for ${session.shop}`);
-          const count = await syncInitialInventory(session, admin);
-          console.log(`[afterAuth] Initial sync complete: ${count} items`);
+          const inventoryCount = await syncInitialInventory(session, admin);
+          console.log(`[afterAuth] Inventory sync complete: ${inventoryCount} items`);
+
+          // Then sync orders
+          const { syncInitialOrders } = await import(
+            "./utils/syncInitialOrders"
+          );
+          console.log(`[afterAuth] Starting initial orders sync for ${session.shop}`);
+          const ordersCount = await syncInitialOrders(session, admin);
+          console.log(`[afterAuth] Orders sync complete: ${ordersCount} orders`);
         } catch (error) {
-          console.error(`[afterAuth] Error syncing initial inventory:`, error);
+          console.error(`[afterAuth] Error in initial sync:`, error);
         }
       })();
     },

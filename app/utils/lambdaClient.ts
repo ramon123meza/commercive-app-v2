@@ -311,15 +311,17 @@ export async function getTracking(orderId: string): Promise<Tracking[]> {
 
 /**
  * Sync inventory data (replaces saveInventoryDataToSupabase)
+ * Now calls the dedicated /inventory/sync endpoint for bulk sync
  */
 export async function syncInventory(
   inventoryData: SyncInventoryPayload
 ): Promise<void> {
-  const client = createApiClient(LAMBDA_URLS.webhooks);
+  const client = createApiClient(LAMBDA_URLS.inventory);
 
   return retryWithBackoff(async () => {
     try {
-      await client.post('/webhooks/inventory/update', inventoryData);
+      // Use the bulk sync endpoint for initial sync
+      await client.post('/inventory/sync', inventoryData);
     } catch (error) {
       handleApiError(error, 'syncInventory');
     }
