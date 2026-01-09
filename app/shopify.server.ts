@@ -106,26 +106,60 @@ const shopify = shopifyApp({
   },
   hooks: {
     afterAuth: async ({ session, admin }) => {
-      console.log("[afterAuth] Registering webhooks...");
-      shopify.registerWebhooks({ session });
+      console.log("[afterAuth] ====== STARTING afterAuth HOOK ======");
+      console.log(`[afterAuth] Shop: ${session.shop}`);
+      console.log(`[afterAuth] Access Token exists: ${!!session.accessToken}`);
+
+      // Register webhooks
+      try {
+        console.log("[afterAuth] Registering webhooks...");
+        await shopify.registerWebhooks({ session });
+        console.log("[afterAuth] Webhooks registered successfully");
+      } catch (webhookError) {
+        console.error("[afterAuth] Webhook registration failed:", webhookError);
+      }
 
       // Create store record with store code (NO auto user creation)
       // Users must sign up manually on the affiliate dashboard
       try {
+        console.log("[afterAuth] Starting store creation process...");
+
+        // Fetch shop details using GraphQL (REST is disabled with removeRest: true)
+        let shopEmail = "";
+        let shopName = session.shop.split(".")[0];
+
+        try {
+          console.log("[afterAuth] Fetching shop details via GraphQL...");
+          const shopResponse = await admin.graphql(
+            `#graphql
+              query {
+                shop {
+                  name
+                  email
+                  myshopifyDomain
+                }
+              }
+            `
+          );
+          const shopData = await shopResponse.json();
+          console.log("[afterAuth] GraphQL shop response:", JSON.stringify(shopData));
+
+          if (shopData?.data?.shop) {
+            shopEmail = shopData.data.shop.email || "";
+            shopName = shopData.data.shop.name || shopName;
+          }
+        } catch (graphqlError) {
+          console.error("[afterAuth] GraphQL shop query failed:", graphqlError);
+          // Continue with defaults - shop creation should still work
+        }
+
+        console.log(`[afterAuth] Shop details - name: ${shopName}, email: ${shopEmail}`);
+
+        // Import and call createStoreOnly
         const { createStoreOnly } = await import("./utils/createStoreOnly");
+        console.log("[afterAuth] createStoreOnly imported successfully");
 
-        // Fetch shop details from Shopify to get owner email and name
-        const shopResponse = await admin.rest.resources.Shop.all({
-          session: session,
-        });
-
-        const shop = shopResponse.data?.[0];
-        const shopEmail = shop?.email || shop?.shop_owner || undefined;
-        const shopName = shop?.name || session.shop.split(".")[0];
-
-        console.log(`[afterAuth] Creating/updating store record for ${session.shop}`);
-
-        // Create store record with store code (no user account created)
+        console.log(`[afterAuth] Calling createStoreOnly for ${session.shop}`);
         const result = await createStoreOnly({
           shopDomain: session.shop,
           accessToken: session.accessToken!,
@@ -133,15 +167,48 @@ const shopify = shopifyApp({
           shopName: shopName,
         });
 
+        console.log("[afterAuth] createStoreOnly result:", JSON.stringify(result));
+
         if (result.success) {
-          console.log(`[afterAuth] Store created with code: ${result.storeCode}`);
+          console.log(`[afterAuth] SUCCESS: Store created with code: ${result.storeCode}`);
         } else {
-          console.error(`[afterAuth] Store creation failed:`, result.error);
+          console.error(`[afterAuth] FAILED: Store creation failed:`, result.error);
+
+          // Fallback: Try direct DynamoDB write if Lambda failed
+          console.log("[afterAuth] Attempting direct DynamoDB fallback...");
+          try {
+            const { createStoreDirectToDynamo } = await import("./utils/createStoreDirect");
+            const fallbackResult = await createStoreDirectToDynamo({
+              shopDomain: session.shop,
+              accessToken: session.accessToken!,
+              email: shopEmail,
+              shopName: shopName,
+            });
+            console.log("[afterAuth] DynamoDB fallback result:", JSON.stringify(fallbackResult));
+          } catch (fallbackError) {
+            console.error("[afterAuth] DynamoDB fallback also failed:", fallbackError);
+          }
         }
       } catch (error) {
-        // Non-blocking error - merchant can still use Shopify app
-        console.error(`[afterAuth] Error creating store record:`, error);
+        console.error(`[afterAuth] CRITICAL ERROR in store creation:`, error);
+
+        // Try fallback even on exception
+        try {
+          console.log("[afterAuth] Attempting emergency DynamoDB fallback...");
+          const { createStoreDirectToDynamo } = await import("./utils/createStoreDirect");
+          const fallbackResult = await createStoreDirectToDynamo({
+            shopDomain: session.shop,
+            accessToken: session.accessToken!,
+            email: "",
+            shopName: session.shop.split(".")[0],
+          });
+          console.log("[afterAuth] Emergency fallback result:", JSON.stringify(fallbackResult));
+        } catch (fallbackError) {
+          console.error("[afterAuth] Emergency fallback failed:", fallbackError);
+        }
       }
+
+      console.log("[afterAuth] ====== afterAuth HOOK COMPLETE ======");
 
       // Sync initial inventory in background (non-blocking)
       (async () => {
