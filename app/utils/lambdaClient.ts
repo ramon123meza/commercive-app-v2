@@ -234,12 +234,24 @@ export async function disconnectStore(storeUrl: string): Promise<void> {
  * Sync order and line items to Lambda (replaces saveOrdersToSupabase + saveLineItemsToSupabase)
  */
 export async function syncOrder(orderData: SyncOrderPayload): Promise<void> {
-  const client = createApiClient(LAMBDA_URLS.webhooks);
+  const webhooksUrl = LAMBDA_URLS.webhooks;
+  console.log(`[syncOrder] Using webhooks URL: ${webhooksUrl || 'EMPTY!'}`);
+
+  if (!webhooksUrl) {
+    console.error('[syncOrder] ERROR: LAMBDA_WEBHOOKS_URL is not set!');
+    throw new Error('LAMBDA_WEBHOOKS_URL is not configured');
+  }
+
+  const client = createApiClient(webhooksUrl);
 
   return retryWithBackoff(async () => {
     try {
-      await client.post('/webhooks/orders/create', orderData);
+      const fullUrl = `${webhooksUrl}/webhooks/orders/create`;
+      console.log(`[syncOrder] POSTing to: ${fullUrl}`);
+      const response = await client.post('/webhooks/orders/create', orderData);
+      console.log(`[syncOrder] Response status: ${response.status}`);
     } catch (error) {
+      console.error(`[syncOrder] Request failed:`, error);
       handleApiError(error, 'syncOrder');
     }
   });
@@ -276,12 +288,24 @@ export async function getOrders(
 export async function syncFulfillment(
   fulfillmentData: SyncFulfillmentPayload
 ): Promise<void> {
-  const client = createApiClient(LAMBDA_URLS.webhooks);
+  const webhooksUrl = LAMBDA_URLS.webhooks;
+  console.log(`[syncFulfillment] Using webhooks URL: ${webhooksUrl || 'EMPTY!'}`);
+
+  if (!webhooksUrl) {
+    console.error('[syncFulfillment] ERROR: LAMBDA_WEBHOOKS_URL is not set!');
+    throw new Error('LAMBDA_WEBHOOKS_URL is not configured');
+  }
+
+  const client = createApiClient(webhooksUrl);
 
   return retryWithBackoff(async () => {
     try {
-      await client.post('/webhooks/fulfillment/create', fulfillmentData);
+      const fullUrl = `${webhooksUrl}/webhooks/fulfillment/create`;
+      console.log(`[syncFulfillment] POSTing to: ${fullUrl}`);
+      const response = await client.post('/webhooks/fulfillment/create', fulfillmentData);
+      console.log(`[syncFulfillment] Response status: ${response.status}`);
     } catch (error) {
+      console.error(`[syncFulfillment] Request failed:`, error);
       handleApiError(error, 'syncFulfillment');
     }
   });
@@ -316,13 +340,25 @@ export async function getTracking(orderId: string): Promise<Tracking[]> {
 export async function syncInventory(
   inventoryData: SyncInventoryPayload
 ): Promise<void> {
-  const client = createApiClient(LAMBDA_URLS.inventory);
+  const inventoryUrl = LAMBDA_URLS.inventory;
+  console.log(`[syncInventory] Using inventory URL: ${inventoryUrl || 'EMPTY!'}`);
+  console.log(`[syncInventory] Syncing ${inventoryData.items?.length || 0} items for ${inventoryData.store_url}`);
+
+  if (!inventoryUrl) {
+    console.error('[syncInventory] ERROR: LAMBDA_INVENTORY_URL is not set!');
+    throw new Error('LAMBDA_INVENTORY_URL is not configured');
+  }
+
+  const client = createApiClient(inventoryUrl);
 
   return retryWithBackoff(async () => {
     try {
-      // Use the bulk sync endpoint for initial sync
-      await client.post('/inventory/sync', inventoryData);
+      const fullUrl = `${inventoryUrl}/inventory/sync`;
+      console.log(`[syncInventory] POSTing to: ${fullUrl}`);
+      const response = await client.post('/inventory/sync', inventoryData);
+      console.log(`[syncInventory] Response status: ${response.status}`);
     } catch (error) {
+      console.error(`[syncInventory] Request failed:`, error);
       handleApiError(error, 'syncInventory');
     }
   });

@@ -214,10 +214,34 @@ async function handleInventoryLevelWebhook(
 
     console.log(`[InventoryLevelWebhook] Fetching item ${inventoryItemGid}, location ${locationGid}`);
 
-    // Fetch full inventory item details from Shopify
+    // Skip if no location ID (required for inventoryLevel query)
+    if (!locationGid) {
+      console.log("[InventoryLevelWebhook] No location ID, skipping GraphQL fetch");
+      // Still sync what we have from the webhook payload
+      const inventoryData: SyncInventoryPayload = {
+        store_url: shop,
+        items: [
+          {
+            shopify_inventory_item_id: String(inventoryItemId),
+            shopify_product_id: "",
+            product_title: "Unknown Product",
+            variant_title: null,
+            sku: null,
+            quantity: payload.available || 0,
+            location_id: String(payload.location_id || ""),
+            location_name: "Primary",
+          },
+        ],
+      };
+      await syncInventory(inventoryData);
+      console.log(`[InventoryLevelWebhook] Synced basic inventory for item ${inventoryItemId}`);
+      return;
+    }
+
+    // Fetch full inventory item details from Shopify (locationId is required)
     const response = await admin.graphql(
       `#graphql
-        query GetInventoryItem($id: ID!, $locationId: ID) {
+        query GetInventoryItem($id: ID!, $locationId: ID!) {
           inventoryItem(id: $id) {
             id
             sku
