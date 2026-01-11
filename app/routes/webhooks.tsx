@@ -218,6 +218,9 @@ async function handleInventoryLevelWebhook(
     if (!locationGid) {
       console.log("[InventoryLevelWebhook] No location ID, skipping GraphQL fetch");
       // Still sync what we have from the webhook payload
+      // Extract quantity from webhook payload's quantities array if available
+      const availableQty = payload.quantities?.find((q: any) => q.name === 'available')?.quantity || 0;
+
       const inventoryData: SyncInventoryPayload = {
         store_url: shop,
         items: [
@@ -227,7 +230,7 @@ async function handleInventoryLevelWebhook(
             product_title: "Unknown Product",
             variant_title: null,
             sku: null,
-            quantity: payload.available || 0,
+            quantity: availableQty,
             location_id: String(payload.location_id || ""),
             location_name: "Primary",
           },
@@ -257,7 +260,6 @@ async function handleInventoryLevelWebhook(
             }
             inventoryLevel(locationId: $locationId) {
               id
-              available
               quantities(names: ["available", "on_hand", "committed"]) {
                 name
                 quantity
@@ -282,6 +284,12 @@ async function handleInventoryLevelWebhook(
       return;
     }
 
+    // Extract quantity from the new quantities array structure
+    const inventoryLevel = item.inventoryLevel;
+    const availableQuantity = inventoryLevel?.quantities?.find(
+      (q: any) => q.name === 'available'
+    )?.quantity || payload.available || 0;
+
     // Prepare inventory data
     const inventoryData: SyncInventoryPayload = {
       store_url: shop,
@@ -292,7 +300,7 @@ async function handleInventoryLevelWebhook(
           product_title: item.variant?.product?.title || "Unknown Product",
           variant_title: item.variant?.title || null,
           sku: item.sku || null,
-          quantity: payload.available || 0,
+          quantity: availableQuantity,
           location_id: String(payload.location_id),
           location_name: "Primary", // Could fetch location name if needed
         },

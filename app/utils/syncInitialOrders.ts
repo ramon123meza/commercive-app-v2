@@ -39,8 +39,8 @@ export async function syncInitialOrders(session: Session, admin: any): Promise<n
 
   while (hasNextPage) {
     const query = `#graphql
-      query GetOrders($cursor: String, $createdAtMin: DateTime) {
-        orders(first: 50, after: $cursor, query: "created_at:>='$createdAtMin'") {
+      query GetOrders($cursor: String, $queryFilter: String) {
+        orders(first: 50, after: $cursor, query: $queryFilter) {
           pageInfo {
             hasNextPage
             endCursor
@@ -87,7 +87,10 @@ export async function syncInitialOrders(session: Session, admin: any): Promise<n
 
     try {
       const response = await admin.graphql(query, {
-        variables: { cursor, createdAtMin },
+        variables: {
+          cursor,
+          queryFilter: `created_at:>=${createdAtMin}`
+        },
       });
 
       const result = await response.json();

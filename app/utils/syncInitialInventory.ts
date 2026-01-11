@@ -37,7 +37,10 @@ export async function syncInitialInventory(session: Session, admin: any): Promis
                               id
                               name
                             }
-                            available
+                            quantities(names: ["available", "on_hand"]) {
+                              name
+                              quantity
+                            }
                           }
                         }
                       }
@@ -76,13 +79,16 @@ export async function syncInitialInventory(session: Session, admin: any): Promis
           const level = levelEdge.node;
           const locationId = level.location.id.split('/').pop();
 
+          // Extract quantity from the new quantities array structure
+          const availableQuantity = level.quantities?.find((q: any) => q.name === 'available')?.quantity || 0;
+
           inventoryItems.push({
             shopify_inventory_item_id: inventoryItemId,
             shopify_product_id: productId || '',
             product_title: product.title,
             variant_title: variant.title !== 'Default Title' ? variant.title : null,
             sku: variant.sku || null,
-            quantity: level.available || 0,
+            quantity: availableQuantity,
             location_id: locationId || '',
             location_name: level.location.name || 'Primary',
           });
