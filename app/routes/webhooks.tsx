@@ -190,6 +190,10 @@ async function handleFulfillmentWebhook(
 
 /**
  * Handle INVENTORY_LEVELS webhooks (quantity changes)
+ *
+ * IMPORTANT: This now uses webhook payload data directly instead of making
+ * expensive GraphQL queries for every webhook. This prevents GraphQL cost
+ * limit errors during bulk operations and improves performance.
  */
 async function handleInventoryLevelWebhook(
   shop: string,
@@ -208,101 +212,26 @@ async function handleInventoryLevelWebhook(
       return;
     }
 
-    // Convert numeric IDs to Shopify GID format
-    const inventoryItemGid = `gid://shopify/InventoryItem/${inventoryItemId}`;
-    const locationGid = locationId ? `gid://shopify/Location/${locationId}` : null;
+    // Extract quantity from webhook payload
+    // Shopify's INVENTORY_LEVELS_UPDATE webhook includes the updated quantity
+    const availableQty = payload.available !== undefined ? payload.available : 0;
 
-    console.log(`[InventoryLevelWebhook] Fetching item ${inventoryItemGid}, location ${locationGid}`);
+    console.log(`[InventoryLevelWebhook] Item ${inventoryItemId} at location ${locationId}: quantity=${availableQty}`);
 
-    // Skip if no location ID (required for inventoryLevel query)
-    if (!locationGid) {
-      console.log("[InventoryLevelWebhook] No location ID, skipping GraphQL fetch");
-      // Still sync what we have from the webhook payload
-      // Extract quantity from webhook payload's quantities array if available
-      const availableQty = payload.quantities?.find((q: any) => q.name === 'available')?.quantity || 0;
-
-      const inventoryData: SyncInventoryPayload = {
-        store_url: shop,
-        items: [
-          {
-            shopify_inventory_item_id: String(inventoryItemId),
-            shopify_product_id: "",
-            product_title: "Unknown Product",
-            variant_title: null,
-            sku: null,
-            quantity: availableQty,
-            location_id: String(payload.location_id || ""),
-            location_name: "Primary",
-          },
-        ],
-      };
-      await syncInventory(inventoryData);
-      console.log(`[InventoryLevelWebhook] Synced basic inventory for item ${inventoryItemId}`);
-      return;
-    }
-
-    // Fetch full inventory item details from Shopify (locationId is required)
-    const response = await admin.graphql(
-      `#graphql
-        query GetInventoryItem($id: ID!, $locationId: ID!) {
-          inventoryItem(id: $id) {
-            id
-            sku
-            tracked
-            variant {
-              id
-              title
-              displayName
-              product {
-                id
-                title
-              }
-            }
-            inventoryLevel(locationId: $locationId) {
-              id
-              quantities(names: ["available", "on_hand", "committed"]) {
-                name
-                quantity
-              }
-            }
-          }
-        }
-      `,
-      {
-        variables: {
-          id: inventoryItemGid,
-          locationId: locationGid,
-        },
-      }
-    );
-
-    const result = await response.json();
-    const item = result.data?.inventoryItem;
-
-    if (!item) {
-      console.log("[InventoryLevelWebhook] Item not found in Shopify");
-      return;
-    }
-
-    // Extract quantity from the new quantities array structure
-    const inventoryLevel = item.inventoryLevel;
-    const availableQuantity = inventoryLevel?.quantities?.find(
-      (q: any) => q.name === 'available'
-    )?.quantity || payload.available || 0;
-
-    // Prepare inventory data
+    // Use webhook payload data directly - no GraphQL query needed
+    // The webhook contains all the data we need for inventory sync
     const inventoryData: SyncInventoryPayload = {
       store_url: shop,
       items: [
         {
           shopify_inventory_item_id: String(inventoryItemId),
-          shopify_product_id: item.variant?.product?.id?.split("/").pop() || "",
-          product_title: item.variant?.product?.title || "Unknown Product",
-          variant_title: item.variant?.title || null,
-          sku: item.sku || null,
-          quantity: availableQuantity,
-          location_id: String(payload.location_id),
-          location_name: "Primary", // Could fetch location name if needed
+          shopify_product_id: "", // Will be filled by Lambda from existing data if needed
+          product_title: "", // Will be filled by Lambda from existing data if needed
+          variant_title: null,
+          sku: null,
+          quantity: availableQty,
+          location_id: String(locationId || ""),
+          location_name: "Primary",
         },
       ],
     };
@@ -312,7 +241,7 @@ async function handleInventoryLevelWebhook(
     console.log(`[InventoryLevelWebhook] Synced inventory for item ${inventoryItemId}`);
   } catch (error) {
     console.error("[InventoryLevelWebhook] Error:", error);
-    // Don't throw - inventory sync failures shouldn't block webhooks
+    // Don't throw - inventory sync failures shouldn't block webhook acknowledgment
   }
 }
 

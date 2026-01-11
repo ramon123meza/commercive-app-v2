@@ -3,16 +3,18 @@ import { syncInventory } from "./lambdaClient";
 import type { SyncInventoryPayload } from "~/types/api.types";
 
 export async function syncInitialInventory(session: Session, admin: any): Promise<number> {
-  let totalProductsSynced = 0;
+  let totalItemsSynced = 0;
   let hasNextPage = true;
   let cursor: string | null = null;
 
   console.log(`[InitialSync] Starting inventory sync for ${session.shop}`);
 
   while (hasNextPage) {
+    // Use inventoryItems query instead of products to reduce GraphQL cost
+    // This matches the old working version and avoids the cost limit error
     const query = `#graphql
-      query GetProducts($cursor: String) {
-        products(first: 50, after: $cursor) {
+      query GetInventoryItems($cursor: String) {
+        inventoryItems(first: 50, after: $cursor) {
           pageInfo {
             hasNextPage
             endCursor
@@ -20,30 +22,37 @@ export async function syncInitialInventory(session: Session, admin: any): Promis
           edges {
             node {
               id
-              title
-              variants(first: 100) {
+              sku
+              tracked
+              variant {
+                id
+                title
+                image {
+                  url
+                }
+                product {
+                  id
+                  title
+                  featuredMedia {
+                    preview {
+                      image {
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+              inventoryLevels(first: 10) {
                 edges {
                   node {
                     id
-                    title
-                    sku
-                    inventoryItem {
+                    location {
                       id
-                      inventoryLevels(first: 10) {
-                        edges {
-                          node {
-                            id
-                            location {
-                              id
-                              name
-                            }
-                            quantities(names: ["available", "on_hand"]) {
-                              name
-                              quantity
-                            }
-                          }
-                        }
-                      }
+                      name
+                    }
+                    quantities(names: ["available", "on_hand"]) {
+                      name
+                      quantity
                     }
                   }
                 }
@@ -54,65 +63,87 @@ export async function syncInitialInventory(session: Session, admin: any): Promis
       }
     `;
 
-    const response = await admin.graphql(query, {
-      variables: { cursor },
-    });
+    try {
+      const response = await admin.graphql(query, {
+        variables: { cursor },
+      });
 
-    const result = await response.json();
-    const products = result.data?.products?.edges || [];
+      const result = await response.json();
 
-    const inventoryItems: SyncInventoryPayload['items'] = [];
+      // Check for GraphQL errors
+      if (result.errors) {
+        console.error(`[InitialSync] GraphQL errors:`, result.errors);
+        throw new Error(`GraphQL query failed: ${JSON.stringify(result.errors)}`);
+      }
 
-    for (const productEdge of products) {
-      const product = productEdge.node;
-      const productId = product.id.split('/').pop();
+      const inventoryEdges = result.data?.inventoryItems?.edges || [];
 
-      for (const variantEdge of product.variants.edges) {
-        const variant = variantEdge.node;
-        const inventoryItemId = variant.inventoryItem?.id?.split('/').pop();
+      const inventoryItems: SyncInventoryPayload['items'] = [];
+
+      for (const edge of inventoryEdges) {
+        const item = edge.node;
+        const inventoryItemId = item.id.split('/').pop();
+        const productId = item.variant?.product?.id?.split('/').pop();
+
+        // Get product image - prefer variant image, fallback to product featured media
+        const productImage = item.variant?.image?.url ||
+                           item.variant?.product?.featuredMedia?.preview?.image?.url ||
+                           null;
 
         if (!inventoryItemId) continue;
 
-        const inventoryLevels = variant.inventoryItem.inventoryLevels?.edges || [];
+        const inventoryLevels = item.inventoryLevels?.edges || [];
 
         for (const levelEdge of inventoryLevels) {
           const level = levelEdge.node;
           const locationId = level.location.id.split('/').pop();
 
-          // Extract quantity from the new quantities array structure
+          // Extract quantity from the quantities array
           const availableQuantity = level.quantities?.find((q: any) => q.name === 'available')?.quantity || 0;
 
           inventoryItems.push({
             shopify_inventory_item_id: inventoryItemId,
             shopify_product_id: productId || '',
-            product_title: product.title,
-            variant_title: variant.title !== 'Default Title' ? variant.title : null,
-            sku: variant.sku || null,
+            product_title: item.variant?.product?.title || 'Unknown Product',
+            variant_title: item.variant?.title !== 'Default Title' ? item.variant?.title : null,
+            sku: item.sku || null,
             quantity: availableQuantity,
             location_id: locationId || '',
             location_name: level.location.name || 'Primary',
           });
         }
       }
+
+      if (inventoryItems.length > 0) {
+        const payload: SyncInventoryPayload = {
+          store_url: session.shop,
+          items: inventoryItems,
+        };
+
+        await syncInventory(payload);
+        totalItemsSynced += inventoryItems.length;
+        console.log(`[InitialSync] Synced batch: ${inventoryItems.length} items (total: ${totalItemsSynced})`);
+      }
+
+      hasNextPage = result.data?.inventoryItems?.pageInfo?.hasNextPage || false;
+      cursor = result.data?.inventoryItems?.pageInfo?.endCursor || null;
+
+      // Rate limiting - wait between batches to avoid hitting API limits
+      if (hasNextPage) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    } catch (error) {
+      console.error(`[InitialSync] Error syncing inventory batch:`, error);
+
+      // If it's a GraphQL cost error, log it clearly
+      if (error instanceof Error && error.message.includes('cost')) {
+        console.error(`[InitialSync] GraphQL COST LIMIT ERROR - This query exceeds Shopify's cost limits`);
+      }
+
+      throw error; // Re-throw to be caught by afterAuth hook
     }
-
-    if (inventoryItems.length > 0) {
-      const payload: SyncInventoryPayload = {
-        store_url: session.shop,
-        items: inventoryItems,
-      };
-
-      await syncInventory(payload);
-      totalProductsSynced += inventoryItems.length;
-      console.log(`[InitialSync] Synced batch: ${inventoryItems.length} items (total: ${totalProductsSynced})`);
-    }
-
-    hasNextPage = result.data?.products?.pageInfo?.hasNextPage || false;
-    cursor = result.data?.products?.pageInfo?.endCursor || null;
-
-    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
-  console.log(`[InitialSync] Completed: ${totalProductsSynced} inventory items synced`);
-  return totalProductsSynced;
+  console.log(`[InitialSync] Completed: ${totalItemsSynced} inventory items synced`);
+  return totalItemsSynced;
 }
