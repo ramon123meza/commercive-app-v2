@@ -190,6 +190,8 @@ export async function isInventoryFetched(storeUrl: string): Promise<boolean> {
 
 /**
  * Mark inventory as fetched for a store
+ * NOTE: This endpoint may not exist in all Lambda deployments.
+ * Failure is non-critical - we can still rely on checking inventory existence.
  */
 export async function setInventoryFetched(
   storeUrl: string,
@@ -197,15 +199,15 @@ export async function setInventoryFetched(
 ): Promise<void> {
   const client = createApiClient(LAMBDA_URLS.stores);
 
-  return retryWithBackoff(async () => {
-    try {
-      await client.post(`/stores/${encodeURIComponent(storeUrl)}/sync`, {
-        is_inventory_fetched: fetched,
-      });
-    } catch (error) {
-      handleApiError(error, 'setInventoryFetched');
-    }
-  });
+  try {
+    await client.post(`/stores/${encodeURIComponent(storeUrl)}/sync`, {
+      is_inventory_fetched: fetched,
+    });
+  } catch (error) {
+    // Don't throw - this is a non-critical operation
+    // If the endpoint doesn't exist (404), just log and continue
+    console.warn('[setInventoryFetched] Failed to mark inventory as fetched (non-critical):', error);
+  }
 }
 
 /**

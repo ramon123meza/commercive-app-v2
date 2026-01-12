@@ -28,7 +28,7 @@ import {
 } from "@shopify/polaris";
 import { ClipboardIcon } from "@shopify/polaris-icons";
 import { DASHBOARD_URLS } from "~/config/lambda.server";
-import { getStore, isInventoryFetched, setInventoryFetched } from "~/utils/lambdaClient";
+import { getStore, getInventory } from "~/utils/lambdaClient";
 import { syncInitialInventory } from "~/utils/syncInitialInventory";
 import { syncInitialOrders } from "~/utils/syncInitialOrders";
 
@@ -57,8 +57,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // CRITICAL FIX: Sync inventory and orders on first load (like old version)
   // This runs in the loader (blocking) instead of afterAuth (background)
   // to ensure it completes in serverless environments
+  //
+  // IMPORTANT: This entire block is wrapped in try/catch to ensure the UI
+  // always loads even if sync fails. Sync failures are logged but non-blocking.
   try {
-    const alreadySynced = await isInventoryFetched(session.shop);
+    // Check if inventory already exists (smarter than calling a flag endpoint)
+    const existingInventory = await getInventory(session.shop, 1);
+    const alreadySynced = existingInventory && existingInventory.length > 0;
     console.log(`[app._index] Inventory already synced: ${alreadySynced}`);
 
     if (!alreadySynced) {
@@ -69,12 +74,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         const inventoryCount = await syncInitialInventory(session, admin);
         syncStatus.inventory = inventoryCount;
         console.log(`[app._index] ✓ Inventory sync complete: ${inventoryCount} items`);
-
-        // Mark as synced to prevent re-sync on next page load
-        await setInventoryFetched(session.shop, true);
       } catch (invError) {
         console.error(`[app._index] Inventory sync failed:`, invError);
         syncStatus.error = invError instanceof Error ? invError.message : 'Inventory sync failed';
+        // Don't throw - let the UI load anyway
       }
 
       // Sync orders (blocking)
@@ -87,12 +90,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         if (!syncStatus.error) {
           syncStatus.error = ordError instanceof Error ? ordError.message : 'Orders sync failed';
         }
+        // Don't throw - let the UI load anyway
       }
     } else {
       console.log(`[app._index] Skipping sync - inventory already fetched`);
     }
   } catch (syncCheckError) {
     console.error(`[app._index] Error checking sync status:`, syncCheckError);
+    // Don't throw - this shouldn't prevent the UI from loading
+    syncStatus.error = 'Could not check sync status';
   }
 
   // Use environment variable for dashboard URL
