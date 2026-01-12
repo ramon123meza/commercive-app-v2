@@ -209,52 +209,11 @@ const shopify = shopifyApp({
       }
 
       console.log("[afterAuth] ====== afterAuth HOOK COMPLETE ======");
+      console.log(`[afterAuth] Initial data sync will occur when user loads the app dashboard`);
 
-      // Sync initial inventory and orders in background (non-blocking)
-      // Improved error tracking and logging for debugging
-      const syncPromise = (async () => {
-        try {
-          // Sync inventory first
-          const { syncInitialInventory } = await import(
-            "./utils/syncInitialInventory"
-          );
-          console.log(`[afterAuth] Starting initial inventory sync for ${session.shop}`);
-          const inventoryCount = await syncInitialInventory(session, admin);
-          console.log(`[afterAuth] ✓ Inventory sync complete: ${inventoryCount} items`);
-
-          // Then sync orders
-          const { syncInitialOrders } = await import(
-            "./utils/syncInitialOrders"
-          );
-          console.log(`[afterAuth] Starting initial orders sync for ${session.shop}`);
-          const ordersCount = await syncInitialOrders(session, admin);
-          console.log(`[afterAuth] ✓ Orders sync complete: ${ordersCount} orders`);
-
-          return { success: true, inventoryCount, ordersCount };
-        } catch (error) {
-          console.error(`[afterAuth] ✗ SYNC FAILED for ${session.shop}:`, error);
-          if (error instanceof Error) {
-            console.error(`[afterAuth] Error details:`, {
-              message: error.message,
-              stack: error.stack,
-            });
-          }
-          return { success: false, error };
-        }
-      })();
-
-      // Don't await (non-blocking), but track the promise result for visibility
-      syncPromise.then((result) => {
-        if (result.success) {
-          console.log(`[afterAuth] ====== SYNC SUCCESS for ${session.shop} ======`);
-          console.log(`[afterAuth] Total synced: ${result.inventoryCount} inventory items, ${result.ordersCount} orders`);
-        } else {
-          console.error(`[afterAuth] ====== SYNC FAILURE for ${session.shop} ======`);
-          console.error(`[afterAuth] Error:`, result.error);
-        }
-      }).catch((err) => {
-        console.error(`[afterAuth] Unexpected error in sync promise handler:`, err);
-      });
+      // NOTE: Initial sync has been moved to app._index loader to ensure
+      // it completes in serverless environments. Background promises in
+      // afterAuth get killed when the serverless function exits.
     },
   },
   ...(process.env.SHOP_CUSTOM_DOMAIN

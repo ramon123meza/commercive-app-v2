@@ -65,15 +65,33 @@ async function retryWithBackoff<T>(
 function handleApiError(error: unknown, context: string): never {
   if (axios.isAxiosError(error)) {
     const axiosError = error as AxiosError;
-    console.error(`Lambda API Error [${context}]:`, {
+
+    // Enhanced error logging with full details
+    const errorDetails = {
       status: axiosError.response?.status,
+      statusText: axiosError.response?.statusText,
       data: axiosError.response?.data,
       message: axiosError.message,
-    });
+      url: axiosError.config?.url,
+      method: axiosError.config?.method,
+    };
 
-    throw new Error(
-      `API Error: ${axiosError.response?.data || axiosError.message}`
-    );
+    console.error(`Lambda API Error [${context}]:`, JSON.stringify(errorDetails, null, 2));
+
+    // Create a detailed error message
+    let errorMessage = `API Error in ${context}: `;
+    if (axiosError.response) {
+      errorMessage += `HTTP ${axiosError.response.status}`;
+      if (typeof axiosError.response.data === 'string') {
+        errorMessage += ` - ${axiosError.response.data}`;
+      } else if (axiosError.response.data && typeof axiosError.response.data === 'object') {
+        errorMessage += ` - ${JSON.stringify(axiosError.response.data)}`;
+      }
+    } else {
+      errorMessage += axiosError.message;
+    }
+
+    throw new Error(errorMessage);
   }
 
   console.error(`Unexpected Error [${context}]:`, error);
@@ -343,10 +361,12 @@ export async function syncInventory(
   const inventoryUrl = LAMBDA_URLS.inventory;
   console.log(`[syncInventory] Using inventory URL: ${inventoryUrl || 'EMPTY!'}`);
   console.log(`[syncInventory] Syncing ${inventoryData.items?.length || 0} items for ${inventoryData.store_url}`);
+  console.log(`[syncInventory] Sample item:`, inventoryData.items?.[0] ? JSON.stringify(inventoryData.items[0]) : 'none');
 
   if (!inventoryUrl) {
     console.error('[syncInventory] ERROR: LAMBDA_INVENTORY_URL is not set!');
-    throw new Error('LAMBDA_INVENTORY_URL is not configured');
+    console.error('[syncInventory] Available Lambda URLs:', LAMBDA_URLS);
+    throw new Error('LAMBDA_INVENTORY_URL is not configured - check environment variables');
   }
 
   const client = createApiClient(inventoryUrl);
@@ -355,8 +375,12 @@ export async function syncInventory(
     try {
       const fullUrl = `${inventoryUrl}/inventory/sync`;
       console.log(`[syncInventory] POSTing to: ${fullUrl}`);
+      console.log(`[syncInventory] Payload size: ${JSON.stringify(inventoryData).length} bytes`);
+
       const response = await client.post('/inventory/sync', inventoryData);
+
       console.log(`[syncInventory] Response status: ${response.status}`);
+      console.log(`[syncInventory] Response data:`, response.data);
     } catch (error) {
       console.error(`[syncInventory] Request failed:`, error);
       handleApiError(error, 'syncInventory');

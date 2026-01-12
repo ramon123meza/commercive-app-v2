@@ -28,16 +28,19 @@ import {
 } from "@shopify/polaris";
 import { ClipboardIcon } from "@shopify/polaris-icons";
 import { DASHBOARD_URLS } from "~/config/lambda.server";
-import { getStore } from "~/utils/lambdaClient";
+import { getStore, isInventoryFetched, setInventoryFetched } from "~/utils/lambdaClient";
+import { syncInitialInventory } from "~/utils/syncInitialInventory";
+import { syncInitialOrders } from "~/utils/syncInitialOrders";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
 
   console.log(`[app._index] Loading store data for: ${session.shop}`);
 
   let store = null;
   let storeCode = null;
   let isLinked = false;
+  let syncStatus = { inventory: 0, orders: 0, error: null as string | null };
 
   try {
     store = await getStore(session.shop);
@@ -51,6 +54,47 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.error(`[app._index] Error fetching store:`, error);
   }
 
+  // CRITICAL FIX: Sync inventory and orders on first load (like old version)
+  // This runs in the loader (blocking) instead of afterAuth (background)
+  // to ensure it completes in serverless environments
+  try {
+    const alreadySynced = await isInventoryFetched(session.shop);
+    console.log(`[app._index] Inventory already synced: ${alreadySynced}`);
+
+    if (!alreadySynced) {
+      console.log(`[app._index] Starting initial sync for ${session.shop}`);
+
+      // Sync inventory (blocking)
+      try {
+        const inventoryCount = await syncInitialInventory(session, admin);
+        syncStatus.inventory = inventoryCount;
+        console.log(`[app._index] ✓ Inventory sync complete: ${inventoryCount} items`);
+
+        // Mark as synced to prevent re-sync on next page load
+        await setInventoryFetched(session.shop, true);
+      } catch (invError) {
+        console.error(`[app._index] Inventory sync failed:`, invError);
+        syncStatus.error = invError instanceof Error ? invError.message : 'Inventory sync failed';
+      }
+
+      // Sync orders (blocking)
+      try {
+        const ordersCount = await syncInitialOrders(session, admin);
+        syncStatus.orders = ordersCount;
+        console.log(`[app._index] ✓ Orders sync complete: ${ordersCount} orders`);
+      } catch (ordError) {
+        console.error(`[app._index] Orders sync failed:`, ordError);
+        if (!syncStatus.error) {
+          syncStatus.error = ordError instanceof Error ? ordError.message : 'Orders sync failed';
+        }
+      }
+    } else {
+      console.log(`[app._index] Skipping sync - inventory already fetched`);
+    }
+  } catch (syncCheckError) {
+    console.error(`[app._index] Error checking sync status:`, syncCheckError);
+  }
+
   // Use environment variable for dashboard URL
   const dashboardUrl = DASHBOARD_URLS.affiliate || process.env.AFFILIATE_DASHBOARD_URL || "https://main.d17uirvlkd5qgw.amplifyapp.com";
 
@@ -62,11 +106,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     storeCode,
     isLinked,
     dashboardUrl,
+    syncStatus,
   });
 };
 
 export default function Index() {
-  const { shop, shopName, storeCode, isLinked, dashboardUrl } =
+  const { shop, shopName, storeCode, isLinked, dashboardUrl, syncStatus } =
     useLoaderData<typeof loader>();
 
   const copyToClipboard = () => {
@@ -85,6 +130,22 @@ export default function Index() {
   return (
     <Page title="Commercive">
       <BlockStack gap="500">
+        {/* Sync Status Banner */}
+        {syncStatus && (syncStatus.inventory > 0 || syncStatus.orders > 0) && (
+          <Banner tone="success">
+            <p>
+              <strong>Initial Sync Complete!</strong> Synced {syncStatus.inventory} inventory items and {syncStatus.orders} orders.
+            </p>
+          </Banner>
+        )}
+        {syncStatus && syncStatus.error && (
+          <Banner tone="warning">
+            <p>
+              <strong>Sync Warning:</strong> {syncStatus.error}. Inventory will sync via webhooks going forward.
+            </p>
+          </Banner>
+        )}
+
         {/* Welcome Banner */}
         <Card>
           <BlockStack gap="300">
