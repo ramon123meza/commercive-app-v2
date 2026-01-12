@@ -218,17 +218,58 @@ async function handleInventoryLevelWebhook(
 
     console.log(`[InventoryLevelWebhook] Item ${inventoryItemId} at location ${locationId}: quantity=${availableQty}`);
 
-    // Use webhook payload data directly - no GraphQL query needed
-    // The webhook contains all the data we need for inventory sync
+    // Fetch complete inventory item data to ensure we don't overwrite existing fields
+    // This is safer than relying on Lambda to preserve existing data
+    let productId = "";
+    let productTitle = "";
+    let variantTitle = null;
+    let sku = null;
+
+    try {
+      const query = `#graphql
+        query GetInventoryItem($id: ID!) {
+          inventoryItem(id: $id) {
+            id
+            sku
+            variant {
+              id
+              title
+              product {
+                id
+                title
+              }
+            }
+          }
+        }
+      `;
+
+      const response = await admin.graphql(query, {
+        variables: { id: `gid://shopify/InventoryItem/${inventoryItemId}` },
+      });
+
+      const result = await response.json();
+
+      if (result.data?.inventoryItem) {
+        const item = result.data.inventoryItem;
+        productId = item.variant?.product?.id?.split('/').pop() || "";
+        productTitle = item.variant?.product?.title || "";
+        variantTitle = item.variant?.title !== 'Default Title' ? item.variant?.title : null;
+        sku = item.sku || null;
+      }
+    } catch (fetchError) {
+      console.error("[InventoryLevelWebhook] Failed to fetch item details:", fetchError);
+      // Continue with partial data - Lambda should handle it
+    }
+
     const inventoryData: SyncInventoryPayload = {
       store_url: shop,
       items: [
         {
           shopify_inventory_item_id: String(inventoryItemId),
-          shopify_product_id: "", // Will be filled by Lambda from existing data if needed
-          product_title: "", // Will be filled by Lambda from existing data if needed
-          variant_title: null,
-          sku: null,
+          shopify_product_id: productId,
+          product_title: productTitle,
+          variant_title: variantTitle,
+          sku: sku,
           quantity: availableQty,
           location_id: String(locationId || ""),
           location_name: "Primary",

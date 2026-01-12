@@ -134,22 +134,44 @@ export async function syncInitialOrders(session: Session, admin: any): Promise<n
         };
       });
 
-      // Send to Lambda
+      // Send to Lambda using the WEBHOOK endpoint (not batch endpoint)
+      // Call the same endpoint that webhooks use - one order at a time
       if (transformedOrders.length > 0) {
-        const payload: SyncOrderPayload = {
-          store_url: session.shop,
-          orders: transformedOrders,
-        };
+        const webhooksUrl = LAMBDA_URLS.webhooks;
 
-        const ordersLambdaUrl = LAMBDA_URLS.orders;
-        if (ordersLambdaUrl) {
-          await axios.post(`${ordersLambdaUrl}/orders/sync`, payload, {
-            timeout: 30000,
-            headers: { 'Content-Type': 'application/json' },
-          });
+        if (webhooksUrl) {
+          for (const orderData of transformedOrders) {
+            try {
+              // Use the same structure as the webhook handler
+              const webhookPayload = {
+                store_url: session.shop,
+                order: {
+                  shopify_order_id: orderData.shopify_order_id,
+                  order_number: orderData.order_number,
+                  financial_status: orderData.financial_status,
+                  fulfillment_status: orderData.fulfillment_status,
+                  total_price: orderData.total_price,
+                  currency: orderData.currency,
+                  customer_email: orderData.customer_email,
+                  customer_name: orderData.customer_name,
+                  created_at: orderData.created_at,
+                },
+                line_items: orderData.line_items,
+              };
+
+              await axios.post(`${webhooksUrl}/webhooks/orders/create`, webhookPayload, {
+                timeout: 30000,
+                headers: { 'Content-Type': 'application/json' },
+              });
+
+              totalOrdersSynced++;
+            } catch (orderError) {
+              console.error(`[InitialOrdersSync] Failed to sync order ${orderData.shopify_order_id}:`, orderError);
+              // Continue with next order
+            }
+          }
         }
 
-        totalOrdersSynced += transformedOrders.length;
         console.log(`[InitialOrdersSync] Synced batch: ${transformedOrders.length} orders (total: ${totalOrdersSynced})`);
       }
 

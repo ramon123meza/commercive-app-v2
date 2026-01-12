@@ -114,14 +114,24 @@ export async function syncInitialInventory(session: Session, admin: any): Promis
         }
       }
 
+      // Send items ONE AT A TIME to prevent HTTP 500 errors
+      // This matches how inventory webhooks work and prevents payload size/timeout issues
       if (inventoryItems.length > 0) {
-        const payload: SyncInventoryPayload = {
-          store_url: session.shop,
-          items: inventoryItems,
-        };
+        for (const item of inventoryItems) {
+          try {
+            const payload: SyncInventoryPayload = {
+              store_url: session.shop,
+              items: [item], // Send one item at a time
+            };
 
-        await syncInventory(payload);
-        totalItemsSynced += inventoryItems.length;
+            await syncInventory(payload);
+            totalItemsSynced++;
+          } catch (itemError) {
+            console.error(`[InitialSync] Failed to sync inventory item ${item.shopify_inventory_item_id}:`, itemError);
+            // Continue with next item even if this one fails
+          }
+        }
+
         console.log(`[InitialSync] Synced batch: ${inventoryItems.length} items (total: ${totalItemsSynced})`);
       }
 
