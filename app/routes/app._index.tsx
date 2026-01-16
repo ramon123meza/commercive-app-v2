@@ -8,11 +8,15 @@
  *
  * Users must sign up manually on the affiliate dashboard and wait for
  * admin approval before they can link their store using the store code.
+ *
+ * IMPORTANT: This page loads IMMEDIATELY without blocking on sync operations.
+ * Sync happens in the background via client-side fetch to /app/sync endpoint.
  */
 
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData, useFetcher } from "@remix-run/react";
+import { useEffect, useState } from "react";
 import { authenticate } from "../shopify.server";
 import {
   Page,
@@ -25,26 +29,29 @@ import {
   Banner,
   List,
   Divider,
+  Spinner,
+  ProgressBar,
 } from "@shopify/polaris";
 import { ClipboardIcon } from "@shopify/polaris-icons";
 import { DASHBOARD_URLS } from "~/config/lambda.server";
-import { getStore, getInventory } from "~/utils/lambdaClient";
-import { syncInitialInventory } from "~/utils/syncInitialInventory";
-import { syncInitialOrders } from "~/utils/syncInitialOrders";
+import { getStore, upsertStore } from "~/utils/lambdaClient";
+import { generateStoreCode } from "~/utils/generateStoreCode";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
 
   console.log(`[app._index] Loading store data for: ${session.shop}`);
 
   let store = null;
   let storeCode = null;
   let isLinked = false;
-  let syncStatus = { inventory: 0, orders: 0, error: null as string | null };
+  let needsSync = false;
 
+  // Try to get existing store
   try {
     store = await getStore(session.shop);
     console.log(`[app._index] Store data retrieved:`, store ? 'found' : 'not found');
+
     if (store) {
       console.log(`[app._index] Store code: ${store.store_code || 'none'}`);
       storeCode = store.store_code || null;
@@ -54,51 +61,31 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.error(`[app._index] Error fetching store:`, error);
   }
 
-  // CRITICAL FIX: Sync inventory and orders on first load (like old version)
-  // This runs in the loader (blocking) instead of afterAuth (background)
-  // to ensure it completes in serverless environments
-  //
-  // IMPORTANT: This entire block is wrapped in try/catch to ensure the UI
-  // always loads even if sync fails. Sync failures are logged but non-blocking.
-  try {
-    // Check if inventory already exists (smarter than calling a flag endpoint)
-    const existingInventory = await getInventory(session.shop, 1);
-    const alreadySynced = existingInventory && existingInventory.length > 0;
-    console.log(`[app._index] Inventory already synced: ${alreadySynced}`);
+  // If store not found, create it now (this ensures store exists before any operations)
+  if (!store || !storeCode) {
+    console.log(`[app._index] Store not found or missing code, creating/updating store...`);
 
-    if (!alreadySynced) {
-      console.log(`[app._index] Starting initial sync for ${session.shop}`);
+    try {
+      // Generate a store code if we don't have one
+      const newStoreCode = storeCode || generateStoreCode();
 
-      // Sync inventory (blocking)
-      try {
-        const inventoryCount = await syncInitialInventory(session, admin);
-        syncStatus.inventory = inventoryCount;
-        console.log(`[app._index] ✓ Inventory sync complete: ${inventoryCount} items`);
-      } catch (invError) {
-        console.error(`[app._index] Inventory sync failed:`, invError);
-        syncStatus.error = invError instanceof Error ? invError.message : 'Inventory sync failed';
-        // Don't throw - let the UI load anyway
-      }
+      // Create/update the store via Lambda
+      const createdStore = await upsertStore({
+        store_url: session.shop,
+        shop_name: session.shop.split(".")[0],
+        email: '',
+        access_token: session.accessToken!,
+        store_code: newStoreCode,
+      });
 
-      // Sync orders (blocking)
-      try {
-        const ordersCount = await syncInitialOrders(session, admin);
-        syncStatus.orders = ordersCount;
-        console.log(`[app._index] ✓ Orders sync complete: ${ordersCount} orders`);
-      } catch (ordError) {
-        console.error(`[app._index] Orders sync failed:`, ordError);
-        if (!syncStatus.error) {
-          syncStatus.error = ordError instanceof Error ? ordError.message : 'Orders sync failed';
-        }
-        // Don't throw - let the UI load anyway
-      }
-    } else {
-      console.log(`[app._index] Skipping sync - inventory already fetched`);
+      console.log(`[app._index] Store created/updated:`, createdStore.store_id);
+      storeCode = createdStore.store_code || newStoreCode;
+      store = createdStore;
+      needsSync = true; // New store needs initial sync
+    } catch (createError) {
+      console.error(`[app._index] Error creating store:`, createError);
+      // Continue without store - user will see error message
     }
-  } catch (syncCheckError) {
-    console.error(`[app._index] Error checking sync status:`, syncCheckError);
-    // Don't throw - this shouldn't prevent the UI from loading
-    syncStatus.error = 'Could not check sync status';
   }
 
   // Use environment variable for dashboard URL
@@ -112,13 +99,55 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     storeCode,
     isLinked,
     dashboardUrl,
-    syncStatus,
+    needsSync,
   });
 };
 
 export default function Index() {
-  const { shop, shopName, storeCode, isLinked, dashboardUrl, syncStatus } =
+  const { shop, shopName, storeCode, isLinked, dashboardUrl, needsSync } =
     useLoaderData<typeof loader>();
+
+  const syncFetcher = useFetcher();
+  const [syncStatus, setSyncStatus] = useState<{
+    syncing: boolean;
+    completed: boolean;
+    inventory: number;
+    orders: number;
+    error: string | null;
+  }>({
+    syncing: false,
+    completed: false,
+    inventory: 0,
+    orders: 0,
+    error: null,
+  });
+
+  // Trigger background sync when page loads if needed
+  useEffect(() => {
+    if (needsSync && !syncStatus.syncing && !syncStatus.completed) {
+      console.log('[app._index] Triggering background sync...');
+      setSyncStatus(prev => ({ ...prev, syncing: true }));
+      syncFetcher.load('/app/sync');
+    }
+  }, [needsSync]);
+
+  // Handle sync response
+  useEffect(() => {
+    if (syncFetcher.data && syncFetcher.state === 'idle') {
+      const data = syncFetcher.data as any;
+      setSyncStatus({
+        syncing: false,
+        completed: true,
+        inventory: data.inventory || 0,
+        orders: data.orders || 0,
+        error: data.error || null,
+      });
+
+      if (!data.error) {
+        shopify.toast.show(`Synced ${data.inventory || 0} items and ${data.orders || 0} orders`);
+      }
+    }
+  }, [syncFetcher.data, syncFetcher.state]);
 
   const copyToClipboard = () => {
     if (storeCode) {
@@ -136,15 +165,25 @@ export default function Index() {
   return (
     <Page title="Commercive">
       <BlockStack gap="500">
-        {/* Sync Status Banner */}
-        {syncStatus && (syncStatus.inventory > 0 || syncStatus.orders > 0) && (
+        {/* Background Sync Status Banner */}
+        {syncStatus.syncing && (
+          <Banner tone="info">
+            <InlineStack gap="300" blockAlign="center">
+              <Spinner size="small" />
+              <Text as="p">
+                <strong>Syncing your store data...</strong> This happens in the background. You can continue using the app.
+              </Text>
+            </InlineStack>
+          </Banner>
+        )}
+        {syncStatus.completed && !syncStatus.error && (syncStatus.inventory > 0 || syncStatus.orders > 0) && (
           <Banner tone="success">
             <p>
               <strong>Initial Sync Complete!</strong> Synced {syncStatus.inventory} inventory items and {syncStatus.orders} orders.
             </p>
           </Banner>
         )}
-        {syncStatus && syncStatus.error && (
+        {syncStatus.error && (
           <Banner tone="warning">
             <p>
               <strong>Sync Warning:</strong> {syncStatus.error}. Inventory will sync via webhooks going forward.
