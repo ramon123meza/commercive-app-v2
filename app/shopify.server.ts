@@ -59,6 +59,16 @@ const shopify = shopifyApp({
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks",
     },
+    // NEW: Order payment webhook - Critical for 48h SLA tracking
+    ORDERS_PAID: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks",
+    },
+    // NEW: Order cancellation webhook
+    ORDERS_CANCELLED: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks",
+    },
     // INVENTORY LEVELS webhooks - fire when QUANTITIES change
     INVENTORY_LEVELS_UPDATE: {
       deliveryMethod: DeliveryMethod.Http,

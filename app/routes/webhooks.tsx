@@ -39,6 +39,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // =====================================================================
       case "ORDERS_CREATE":
       case "ORDERS_UPDATED":
+      case "ORDERS_PAID":        // NEW: Explicitly handle payment confirmation
+      case "ORDERS_CANCELLED":   // NEW: Handle order cancellations
         await handleOrderWebhook(shop, payload);
         break;
 
@@ -102,6 +104,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 /**
  * Handle ORDER_CREATE and ORDER_UPDATED webhooks
+ *
+ * IMPORTANT: Now tracks payment_status separately from fulfillment_status
+ * and calculates processing_started_at for 48-hour SLA tracking.
  */
 async function handleOrderWebhook(shop: string, payload: any): Promise<void> {
   try {
@@ -117,13 +122,31 @@ async function handleOrderWebhook(shop: string, payload: any): Promise<void> {
       price: item.price || "0.00",
     }));
 
+    // Map Shopify's financial_status to our payment_status
+    // Shopify values: pending, authorized, partially_paid, paid, partially_refunded, refunded, voided
+    let paymentStatus = "awaiting_payment";
+    if (payload.financial_status === "paid" || payload.financial_status === "partially_paid") {
+      paymentStatus = "paid";
+    } else if (payload.financial_status === "authorized") {
+      paymentStatus = "paid"; // Treat authorized as paid for processing
+    }
+
+    // Calculate processing_started_at (when order became eligible for fulfillment)
+    // This is when payment was confirmed
+    let processingStartedAt = null;
+    if (paymentStatus === "paid") {
+      // Use updated_at if available (when status changed), otherwise created_at
+      processingStartedAt = payload.updated_at || payload.created_at || new Date().toISOString();
+    }
+
     // Prepare order data for Lambda
     const orderData: SyncOrderPayload = {
       store_url: shop,
       order: {
         shopify_order_id: String(payload.id),
         order_number: String(payload.order_number || payload.name),
-        financial_status: payload.financial_status || "pending",
+        financial_status: payload.financial_status || "pending", // Keep for legacy
+        payment_status: paymentStatus,  // NEW: Separate payment tracking
         fulfillment_status: payload.fulfillment_status || "unfulfilled",
         total_price: payload.total_price || "0.00",
         currency: payload.currency || "USD",
@@ -132,6 +155,7 @@ async function handleOrderWebhook(shop: string, payload: any): Promise<void> {
           ? `${payload.customer.first_name || ""} ${payload.customer.last_name || ""}`.trim()
           : null,
         created_at: payload.created_at || new Date().toISOString(),
+        processing_started_at: processingStartedAt, // NEW: For 48h SLA tracking
       },
       line_items: lineItems,
     };
@@ -139,7 +163,7 @@ async function handleOrderWebhook(shop: string, payload: any): Promise<void> {
     // Send to Lambda
     await syncOrder(orderData);
 
-    console.log(`[OrderWebhook] Synced order ${payload.id}`);
+    console.log(`[OrderWebhook] Synced order ${payload.id} (payment: ${paymentStatus}, fulfillment: ${payload.fulfillment_status})`);
   } catch (error) {
     console.error("[OrderWebhook] Error:", error);
     throw error;
@@ -148,40 +172,45 @@ async function handleOrderWebhook(shop: string, payload: any): Promise<void> {
 
 /**
  * Handle FULFILLMENT webhooks
+ *
+ * IMPORTANT: Process ALL fulfillments, even without tracking numbers.
+ * Orders without tracking still need to be marked as shipped for processing time calculations.
  */
 async function handleFulfillmentWebhook(
   shop: string,
   payload: any
 ): Promise<void> {
   try {
-    console.log(`[FulfillmentWebhook] Processing for ${shop}`);
+    console.log(`[FulfillmentWebhook] Processing fulfillment ${payload.id} for order ${payload.order_id}`);
 
-    const trackingInfo = payload.tracking_company || payload.tracking_number
-      ? {
-          tracking_number: payload.tracking_number || "",
-          carrier: payload.tracking_company || "Unknown",
-          tracking_url: payload.tracking_url || payload.tracking_urls?.[0] || null,
-        }
-      : null;
+    // Extract tracking info (may be null for manual fulfillments)
+    const hasTracking = payload.tracking_company || payload.tracking_number;
+    const trackingNumber = payload.tracking_number || null;
+    const carrier = payload.tracking_company || (hasTracking ? "Unknown" : "Manual");
+    const trackingUrl = payload.tracking_url || payload.tracking_urls?.[0] || null;
 
-    if (!trackingInfo?.tracking_number) {
-      console.log("[FulfillmentWebhook] No tracking info, skipping");
-      return;
-    }
-
+    // CRITICAL: Always process fulfillment, even without tracking
+    // This ensures orders get marked as shipped and processing time is calculated
     const fulfillmentData: SyncFulfillmentPayload = {
       store_url: shop,
       order_id: String(payload.order_id),
       shopify_order_id: String(payload.order_id),
-      tracking_number: trackingInfo.tracking_number,
-      carrier: trackingInfo.carrier,
-      tracking_url: trackingInfo.tracking_url,
+      shopify_fulfillment_id: String(payload.id), // NEW: Track fulfillment ID
+      tracking_number: trackingNumber,
+      carrier: carrier,
+      tracking_url: trackingUrl,
       status: payload.status || "in_transit",
+      shipped_at: payload.created_at || new Date().toISOString(), // NEW: When order was shipped
+      fulfillment_location: payload.location?.name || null, // NEW: Where it was fulfilled
     };
 
     await syncFulfillment(fulfillmentData);
 
-    console.log(`[FulfillmentWebhook] Synced fulfillment for order ${payload.order_id}`);
+    if (!trackingNumber) {
+      console.log(`[FulfillmentWebhook] ✅ Synced MANUAL fulfillment (no tracking) for order ${payload.order_id}`);
+    } else {
+      console.log(`[FulfillmentWebhook] ✅ Synced fulfillment with tracking ${trackingNumber} for order ${payload.order_id}`);
+    }
   } catch (error) {
     console.error("[FulfillmentWebhook] Error:", error);
     throw error;

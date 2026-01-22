@@ -136,13 +136,15 @@ export interface SyncOrderPayload {
   order: {
     shopify_order_id: string;
     order_number: string;
-    financial_status: string;
+    financial_status: string;            // Legacy field, kept for compatibility
+    payment_status: string;              // NEW: 'awaiting_payment' | 'paid' | 'credit_applied'
     fulfillment_status: string;
     total_price: string;
     currency: string;
     customer_email?: string;
     customer_name?: string;
     created_at: string;
+    processing_started_at: string | null; // NEW: When order became eligible for fulfillment
   };
   line_items: Array<{
     shopify_line_item_id: string;
@@ -172,8 +174,11 @@ export interface SyncFulfillmentPayload {
   store_url: string;
   order_id: string;
   shopify_order_id: string;
-  tracking_number: string;
+  shopify_fulfillment_id: string;  // NEW: Shopify's fulfillment ID
+  tracking_number: string | null;   // UPDATED: Can be null for manual fulfillments
   carrier: string;
   tracking_url?: string;
   status: string;
+  shipped_at: string;               // NEW: When order was shipped
+  fulfillment_location?: string;    // NEW: Where it was fulfilled from
 }
