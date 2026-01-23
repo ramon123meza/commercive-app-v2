@@ -1,4 +1,4 @@
-import type { Payload, TrackingData, Edge, Order } from "../types/payload";
+import type { Payload, TrackingData, Edge, Order } from "~/types/payload";
 import { v4 as uuidv4 } from "uuid";
 
 async function getConversionRate(

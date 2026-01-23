@@ -1,8 +1,12 @@
-import type { Session } from "@shopify/shopify-app-remix";
+import type { Session } from "@shopify/shopify-api";
 import { syncInventory } from "./lambdaClient";
 import type { SyncInventoryPayload } from "~/types/api.types";
 
-export async function syncInitialInventory(session: Session, admin: any): Promise<number> {
+interface AdminGraphQL {
+  graphql: (query: string, options?: { variables?: Record<string, unknown> }) => Promise<Response>;
+}
+
+export async function syncInitialInventory(session: Session, admin: AdminGraphQL): Promise<number> {
   let totalItemsSynced = 0;
   let hasNextPage = true;
   let cursor: string | null = null;

@@ -222,7 +222,7 @@ export async function linkUserToStore(
 
     // Check if this specific store is already linked
     const alreadyLinked = existingLinks.some(
-      (link: { store_id: string }) => link.store_id === store.store_id
+      (link) => (link as { store_id: string }).store_id === store.store_id
     );
 
     if (alreadyLinked) {

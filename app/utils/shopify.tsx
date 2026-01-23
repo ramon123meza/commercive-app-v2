@@ -1,4 +1,4 @@
-import type { Edge, Order, Payload } from "app/types/payload";
+import type { Edge, Order, Payload } from "~/types/payload";
 import axios from "axios";
 import { inventoryQuery, fulfillmentsQuery } from "./queries";
 

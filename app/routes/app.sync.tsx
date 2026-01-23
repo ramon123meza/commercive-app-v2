@@ -39,7 +39,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     // Sync inventory
     try {
-      const inventoryCount = await syncInitialInventory(session, admin);
+      const inventoryCount = await syncInitialInventory(session as any, admin);
       syncResult.inventory = inventoryCount;
       console.log(`[app.sync] ✓ Inventory sync complete: ${inventoryCount} items`);
     } catch (invError) {
@@ -49,7 +49,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     // Sync orders
     try {
-      const ordersCount = await syncInitialOrders(session, admin);
+      const ordersCount = await syncInitialOrders(session as any, admin);
       syncResult.orders = ordersCount;
       console.log(`[app.sync] ✓ Orders sync complete: ${ordersCount} orders`);
     } catch (ordError) {

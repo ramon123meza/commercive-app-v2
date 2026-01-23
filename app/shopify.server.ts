@@ -6,7 +6,6 @@ import {
   shopifyApp,
 } from "@shopify/shopify-app-remix/server";
 import { DynamoDBSessionStorage } from "@shopify/shopify-app-session-storage-dynamodb";
-import dynamoDb from "./db.server";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -25,8 +24,10 @@ const shopify = shopifyApp({
   ],
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
+  // Cast to any due to version mismatch between @shopify/shopify-api packages
   sessionStorage: new DynamoDBSessionStorage({
     sessionTableName: "commercive_shopify_sessions",
+    shopIndexName: "shop-index",
     config: {
       region: process.env.AWS_REGION || "us-east-1",
       credentials: {
@@ -34,7 +35,7 @@ const shopify = shopifyApp({
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
       },
     },
-  }),
+  }) as any,
   distribution: AppDistribution.AppStore,
   future: {
     unstable_newEmbeddedAuthStrategy: true,

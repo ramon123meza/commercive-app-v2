@@ -150,10 +150,10 @@ async function handleOrderWebhook(shop: string, payload: any): Promise<void> {
         fulfillment_status: payload.fulfillment_status || "unfulfilled",
         total_price: payload.total_price || "0.00",
         currency: payload.currency || "USD",
-        customer_email: payload.customer?.email || null,
+        customer_email: payload.customer?.email || undefined,
         customer_name: payload.customer
           ? `${payload.customer.first_name || ""} ${payload.customer.last_name || ""}`.trim()
-          : null,
+          : undefined,
         created_at: payload.created_at || new Date().toISOString(),
         processing_started_at: processingStartedAt, // NEW: For 48h SLA tracking
       },

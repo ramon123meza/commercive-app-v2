@@ -1,6 +1,10 @@
-import type { Session } from "@shopify/shopify-app-remix";
+import type { Session } from "@shopify/shopify-api";
 import axios from 'axios';
 import { LAMBDA_URLS } from '~/config/lambda.server';
+
+interface AdminGraphQL {
+  graphql: (query: string, options?: { variables?: Record<string, unknown> }) => Promise<Response>;
+}
 
 interface SyncOrderPayload {
   store_url: string;
@@ -25,7 +29,7 @@ interface SyncOrderPayload {
   }>;
 }
 
-export async function syncInitialOrders(session: Session, admin: any): Promise<number> {
+export async function syncInitialOrders(session: Session, admin: AdminGraphQL): Promise<number> {
   let totalOrdersSynced = 0;
   let hasNextPage = true;
   let cursor: string | null = null;

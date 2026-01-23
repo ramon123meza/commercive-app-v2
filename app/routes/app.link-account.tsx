@@ -84,9 +84,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 };
 
+type ActionData =
+  | { success: true; message: string; userId: string | undefined; storeId: string | undefined }
+  | { success: false; error: string; errorCode?: string };
+
 export default function LinkAccount() {
   const { shop, shopName, userId } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<typeof action>() as ActionData | undefined;
   const navigation = useNavigation();
 
   const isSubmitting = navigation.state === 'submitting';
@@ -99,7 +103,7 @@ export default function LinkAccount() {
       <BlockStack gap="500">
         {/* Success State */}
         {actionData?.success && (
-          <Banner status="success" title="Account Linked Successfully!">
+          <Banner tone="success" title="Account Linked Successfully!">
             <BlockStack gap="200">
               <Text as="p">
                 Your Commercive dashboard account is now linked to this Shopify store.
@@ -113,7 +117,7 @@ export default function LinkAccount() {
 
         {/* Error State - Account Not Approved */}
         {actionData?.success === false && actionData?.errorCode === 'ACCOUNT_NOT_APPROVED' && (
-          <Banner status="warning" title="Account Pending Approval">
+          <Banner tone="warning" title="Account Pending Approval">
             <BlockStack gap="200">
               <Text as="p">{actionData.error}</Text>
               <Text as="p">
@@ -125,7 +129,7 @@ export default function LinkAccount() {
 
         {/* Error State - Not Store Owner */}
         {actionData?.success === false && actionData?.errorCode === 'NOT_STORE_OWNER' && (
-          <Banner status="warning" title="Store Owner Permission Required">
+          <Banner tone="warning" title="Store Owner Permission Required">
             <BlockStack gap="200">
               <Text as="p">{actionData.error}</Text>
               <Text as="p">
@@ -137,7 +141,7 @@ export default function LinkAccount() {
 
         {/* Error State - Already Has Store */}
         {actionData?.success === false && actionData?.errorCode === 'ALREADY_HAS_STORE' && (
-          <Banner status="warning" title="Store Already Connected">
+          <Banner tone="warning" title="Store Already Connected">
             <BlockStack gap="200">
               <Text as="p">{actionData.error}</Text>
               <Text as="p">
@@ -149,7 +153,7 @@ export default function LinkAccount() {
 
         {/* Error State - Store Already Linked to Another Affiliate */}
         {actionData?.success === false && actionData?.errorCode === 'STORE_ALREADY_LINKED' && (
-          <Banner status="critical" title="Store Unavailable">
+          <Banner tone="critical" title="Store Unavailable">
             <BlockStack gap="200">
               <Text as="p">{actionData.error}</Text>
               <Text as="p">
@@ -161,7 +165,7 @@ export default function LinkAccount() {
 
         {/* Error State - Generic/Other Errors */}
         {actionData?.success === false && !['ACCOUNT_NOT_APPROVED', 'NOT_STORE_OWNER', 'ALREADY_HAS_STORE', 'STORE_ALREADY_LINKED'].includes(actionData?.errorCode || '') && (
-          <Banner status="critical" title="Linking Failed">
+          <Banner tone="critical" title="Linking Failed">
             <Text as="p">{actionData.error}</Text>
           </Banner>
         )}
@@ -183,7 +187,7 @@ export default function LinkAccount() {
               </BlockStack>
 
               {!userId && (
-                <Banner status="warning">
+                <Banner tone="warning">
                   <Text as="p">
                     No account information was provided. Please make sure you're accessing this page from the "Connect Store" button in your affiliate dashboard.
                   </Text>
@@ -211,7 +215,7 @@ export default function LinkAccount() {
               </Form>
 
               <BlockStack gap="200">
-                <Text as="h3" variant="headingS m">
+                <Text as="h3" variant="headingSm">
                   What happens when I link my account?
                 </Text>
                 <ul style={{ paddingLeft: '20px' }}>
@@ -242,7 +246,7 @@ export default function LinkAccount() {
         )}
 
         {/* Instructions for Creating an Account */}
-        {actionData?.error?.includes('No account found') && (
+        {actionData && !actionData.success && 'error' in actionData && actionData.error?.includes('No account found') && (
           <Card>
             <BlockStack gap="300">
               <Text as="h3" variant="headingMd">
