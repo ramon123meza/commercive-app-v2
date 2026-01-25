@@ -1,0 +1,98 @@
+================================================================================
+CRITICAL: PUSH THESE COMMITS TO FIX VERCEL BUILD
+================================================================================
+
+CURRENT SITUATION:
+- Your LOCAL files are CORRECT (fixes applied)
+- GitHub/Vercel still has OLD BUGGY code (commit 87fba24)
+- Vercel build FAILS because it's using the old code
+- You need to PUSH to update GitHub with the fixed code
+
+COMMITS WAITING TO BE PUSHED (2 commits):
+1. 80d83ec - Fix: Correct import path for lambda config
+2. 9f994fc - Fix: Use correct LAMBDA_URLS export name
+
+================================================================================
+WHAT TO DO ON YOUR WINDOWS MACHINE:
+================================================================================
+
+Open PowerShell or Command Prompt and run:
+
+cd C:\Users\ramon\OneDrive\Escritorio\full_system_to_update\commercive-app-v2
+git push
+
+(You may need to enter your GitHub credentials)
+
+================================================================================
+VERIFICATION THAT FIXES ARE CORRECT:
+================================================================================
+
+✅ Line 16 in syncInitialFulfillments.ts:
+   LOCAL: import { LAMBDA_URLS } from "~/config/lambda.server";
+   GITHUB (OLD): import { LAMBDA_CONFIG } from "~/config/lambda.server";
+   ^^ This is what's causing the build error!
+
+✅ Line 110 in syncInitialFulfillments.ts:
+   LOCAL: `${LAMBDA_URLS.webhooks}/webhooks/fulfillment/create`
+   GITHUB (OLD): `${LAMBDA_CONFIG.WEBHOOKS_URL}/webhooks/fulfillment/create`
+   ^^ This is also wrong in the old code
+
+================================================================================
+WHAT HAPPENS AFTER YOU PUSH:
+================================================================================
+
+1. GitHub receives the 2 new commits
+2. Vercel detects the new commits
+3. Vercel rebuilds the app
+4. Build SUCCEEDS this time (errors are fixed)
+5. App deploys successfully
+6. Users can then use automatic fulfillment sync
+
+================================================================================
+WHY THE BUILD CURRENTLY FAILS:
+================================================================================
+
+Vercel error: "LAMBDA_CONFIG" is not exported by "app/config/lambda.server.ts"
+
+This is because the OLD code (commit 87fba24) tries to import:
+  import { LAMBDA_CONFIG } from "~/config/lambda.server"
+
+But lambda.server.ts only exports:
+  export const LAMBDA_URLS = { ... }
+
+The FIX (in commits 80d83ec and 9f994fc) changes it to:
+  import { LAMBDA_URLS } from "~/config/lambda.server"
+
+But these fixes are ONLY in your local repository, not on GitHub yet!
+
+================================================================================
+CONFIRM FIXES ARE LOCAL:
+================================================================================
+
+You can verify the fixes exist locally by running:
+
+cd C:\Users\ramon\OneDrive\Escritorio\full_system_to_update\commercive-app-v2
+git log --oneline -3
+
+Should show:
+  9f994fc Fix: Use correct LAMBDA_URLS export name
+  80d83ec Fix: Correct import path for lambda config
+  f286c13 fixing app
+
+And check:
+  git status
+
+Should show:
+  Your branch is ahead of 'origin/main' by 2 commits.
+  (use "git push" to publish your local commits)
+
+================================================================================
+BOTTOM LINE:
+================================================================================
+
+Your local code is FIXED ✅
+GitHub code is BROKEN ❌
+
+SOLUTION: git push
+
+================================================================================
