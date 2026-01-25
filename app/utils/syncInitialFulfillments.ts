@@ -13,7 +13,7 @@
 
 import type { Session } from "@shopify/shopify-api";
 import { fetchAllFulfillments } from "./shopify";
-import { LAMBDA_CONFIG } from "~/config/lambda.server";
+import { LAMBDA_URLS } from "~/config/lambda.server";
 
 interface TrackingInfo {
   number?: string;
@@ -107,7 +107,7 @@ export async function syncInitialFulfillments(
 
             // Send to Lambda webhooks endpoint (same as Shopify webhook)
             const response = await fetch(
-              `${LAMBDA_CONFIG.WEBHOOKS_URL}/webhooks/fulfillment/create`,
+              `${LAMBDA_URLS.webhooks}/webhooks/fulfillment/create`,
               {
                 method: 'POST',
                 headers: {
