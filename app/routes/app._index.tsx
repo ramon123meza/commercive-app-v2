@@ -46,6 +46,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let storeCode = null;
   let isLinked = false;
   let needsSync = false;
+  let needsFulfillmentSync = false;
 
   // Try to get existing store
   try {
@@ -56,6 +57,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       console.log(`[app._index] Store code: ${store.store_code || 'none'}`);
       storeCode = store.store_code || null;
       isLinked = store.is_linked_to_affiliate || false;
+
+      // Check if fulfillments need syncing (for existing stores)
+      if (!store.fulfillments_synced) {
+        console.log(`[app._index] Store needs fulfillment sync`);
+        needsFulfillmentSync = true;
+        needsSync = true;  // Trigger sync
+      }
     }
   } catch (error) {
     console.error(`[app._index] Error fetching store:`, error);
@@ -100,11 +108,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     isLinked,
     dashboardUrl,
     needsSync,
+    needsFulfillmentSync,
   });
 };
 
 export default function Index() {
-  const { shop, shopName, storeCode, isLinked, dashboardUrl, needsSync } =
+  const { shop, shopName, storeCode, isLinked, dashboardUrl, needsSync, needsFulfillmentSync } =
     useLoaderData<typeof loader>();
 
   const syncFetcher = useFetcher();
@@ -113,12 +122,14 @@ export default function Index() {
     completed: boolean;
     inventory: number;
     orders: number;
+    fulfillments: number;
     error: string | null;
   }>({
     syncing: false,
     completed: false,
     inventory: 0,
     orders: 0,
+    fulfillments: 0,
     error: null,
   });
 
@@ -140,14 +151,20 @@ export default function Index() {
         completed: true,
         inventory: data.inventory || 0,
         orders: data.orders || 0,
+        fulfillments: data.fulfillments || 0,
         error: data.error || null,
       });
 
       if (!data.error) {
-        shopify.toast.show(`Synced ${data.inventory || 0} items and ${data.orders || 0} orders`);
+        // Show appropriate message based on what was synced
+        if (needsFulfillmentSync && data.fulfillments > 0) {
+          shopify.toast.show(`Synced ${data.fulfillments} shipment tracking records!`);
+        } else if (data.inventory > 0 || data.orders > 0) {
+          shopify.toast.show(`Synced ${data.inventory || 0} items and ${data.orders || 0} orders`);
+        }
       }
     }
-  }, [syncFetcher.data, syncFetcher.state]);
+  }, [syncFetcher.data, syncFetcher.state, needsFulfillmentSync]);
 
   const copyToClipboard = () => {
     if (storeCode) {
@@ -171,15 +188,23 @@ export default function Index() {
             <InlineStack gap="300" blockAlign="center">
               <Spinner size="small" />
               <Text as="p">
-                <strong>Syncing your store data...</strong> This happens in the background. You can continue using the app.
+                <strong>
+                  {needsFulfillmentSync
+                    ? 'Syncing shipment tracking data...'
+                    : 'Syncing your store data...'}
+                </strong> This happens in the background. You can continue using the app.
               </Text>
             </InlineStack>
           </Banner>
         )}
-        {syncStatus.completed && !syncStatus.error && (syncStatus.inventory > 0 || syncStatus.orders > 0) && (
+        {syncStatus.completed && !syncStatus.error && (syncStatus.inventory > 0 || syncStatus.orders > 0 || syncStatus.fulfillments > 0) && (
           <Banner tone="success">
             <p>
-              <strong>Initial Sync Complete!</strong> Synced {syncStatus.inventory} inventory items and {syncStatus.orders} orders.
+              <strong>Sync Complete!</strong>{' '}
+              {syncStatus.inventory > 0 && `Synced ${syncStatus.inventory} inventory items`}
+              {syncStatus.orders > 0 && ` and ${syncStatus.orders} orders`}
+              {syncStatus.fulfillments > 0 && `. Created ${syncStatus.fulfillments} shipment tracking records`}
+              .
             </p>
           </Banner>
         )}
