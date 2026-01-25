@@ -13,7 +13,7 @@
 
 import type { Session } from "@shopify/shopify-api";
 import { fetchAllFulfillments } from "./shopify";
-import { LAMBDA_CONFIG } from "~/config/lambda";
+import { LAMBDA_CONFIG } from "~/config/lambda.server";
 
 interface TrackingInfo {
   number?: string;
