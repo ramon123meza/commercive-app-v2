@@ -145,6 +145,7 @@ export interface SyncOrderPayload {
     customer_name?: string;
     created_at: string;
     processing_started_at: string | null; // NEW: When order became eligible for fulfillment
+    shipping_address?: any;              // NEW: Shopify shipping address object for geocoding
   };
   line_items: Array<{
     shopify_line_item_id: string;

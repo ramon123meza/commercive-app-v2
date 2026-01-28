@@ -156,6 +156,7 @@ async function handleOrderWebhook(shop: string, payload: any): Promise<void> {
           : undefined,
         created_at: payload.created_at || new Date().toISOString(),
         processing_started_at: processingStartedAt, // NEW: For 48h SLA tracking
+        shipping_address: payload.shipping_address || undefined, // NEW: For geocoding and display
       },
       line_items: lineItems,
     };
