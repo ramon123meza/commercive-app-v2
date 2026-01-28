@@ -86,26 +86,23 @@ export async function syncInitialFulfillments(
 
         for (const trackingInfo of trackingEntries) {
           try {
-            // Build fulfillment payload matching Shopify webhook format
+            // Build fulfillment payload matching SyncFulfillmentPayload format
+            // IMPORTANT: This must match the format used by the real-time webhook handler
+            // to ensure Lambda can process both historical and real-time fulfillments
             const fulfillmentPayload = {
-              id: fulfillment.id.split('/').pop(),  // Extract ID from GID
+              store_url: session.shop,
               order_id: shopifyOrderId,
-              status: fulfillment.status,
-              created_at: fulfillment.createdAt,
-              updated_at: fulfillment.updatedAt,
+              shopify_order_id: shopifyOrderId,
+              shopify_fulfillment_id: fulfillment.id.split('/').pop() || '',
               tracking_number: trackingInfo.number || null,
+              carrier: trackingInfo.company || 'Manual',
               tracking_url: trackingInfo.url || null,
-              tracking_company: trackingInfo.company || null,
+              status: fulfillment.status || 'in_transit',
+              shipped_at: fulfillment.createdAt || fulfillment.updatedAt,
+              fulfillment_location: null,  // Not available in historical data
             };
 
-            // Build webhook payload format
-            const webhookPayload = {
-              id: shopifyOrderId,
-              name: typedOrder.name,
-              fulfillments: [fulfillmentPayload],
-            };
-
-            // Send to Lambda webhooks endpoint (same as Shopify webhook)
+            // Send to Lambda webhooks endpoint using same format as real-time webhooks
             const response = await fetch(
               `${LAMBDA_URLS.webhooks}/webhooks/fulfillment/create`,
               {
@@ -115,7 +112,7 @@ export async function syncInitialFulfillments(
                   'X-Shopify-Shop-Domain': session.shop,
                   'X-Shopify-Topic': 'fulfillments/create',
                 },
-                body: JSON.stringify(webhookPayload),
+                body: JSON.stringify(fulfillmentPayload),
               }
             );
 
