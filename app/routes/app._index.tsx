@@ -38,7 +38,7 @@ import { getStore, upsertStore } from "~/utils/lambdaClient";
 import { generateStoreCode } from "~/utils/generateStoreCode";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
 
   console.log(`[app._index] Loading store data for: ${session.shop}`);
 
@@ -47,6 +47,26 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let isLinked = false;
   let needsSync = false;
   let needsFulfillmentSync = false;
+
+  // Fetch the actual shop name from Shopify GraphQL API
+  let shopName = session.shop.split(".")[0]; // fallback
+  try {
+    const shopResponse = await admin.graphql(
+      `#graphql
+        query {
+          shop {
+            name
+          }
+        }
+      `
+    );
+    const shopData = await shopResponse.json();
+    if (shopData?.data?.shop?.name) {
+      shopName = shopData.data.shop.name;
+    }
+  } catch (graphqlError) {
+    console.error(`[app._index] GraphQL shop query failed:`, graphqlError);
+  }
 
   // Try to get existing store
   try {
@@ -77,10 +97,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       // Generate a store code if we don't have one
       const newStoreCode = storeCode || generateStoreCode();
 
-      // Create/update the store via Lambda
+      // Create/update the store via Lambda using actual shop name
       const createdStore = await upsertStore({
         store_url: session.shop,
-        shop_name: session.shop.split(".")[0],
+        shop_name: shopName,
         email: '',
         access_token: session.accessToken!,
         store_code: newStoreCode,
@@ -103,7 +123,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return json({
     shop: session.shop,
-    shopName: session.shop.split(".")[0],
+    shopName: store?.shop_name || shopName,
     storeCode,
     isLinked,
     dashboardUrl,
